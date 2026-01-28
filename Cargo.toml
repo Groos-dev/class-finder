@@ -1,0 +1,18 @@
+[package]
+name = "class-finder"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+dirs = "5"
+hex = "0.4"
+ignore = "0.4"
+memmap2 = "0.9"
+rayon = "1"
+redb = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
