@@ -8,9 +8,9 @@ $ErrorActionPreference = "Stop"
 $Repo = "Groos-dev/class-finder"
 
 function Get-LatestTag {
-  $uri = "https://api.github.com/repos/$Repo/releases/latest"
+  $uri = "https://api.github.com/repos/$Repo/releases?per_page=1"
   $resp = Invoke-RestMethod -Uri $uri -Headers @{ "User-Agent" = "class-finder-installer" }
-  return $resp.tag_name
+  return $resp[0].tag_name
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {

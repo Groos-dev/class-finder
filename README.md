@@ -11,13 +11,13 @@
 - Linux / macOS：
 
 ```bash
-curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
 ```
 
 - Windows（PowerShell）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
 ```
 
 ### 源码构建
