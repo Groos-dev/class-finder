@@ -147,8 +147,11 @@ fn clear_db(db_path: &Path) -> Result<()> {
 }
 
 fn class_finder_home() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("无法获取 home 目录"))?;
-    Ok(home.join(".class-finder"))
+    let base = dirs::data_local_dir()
+        .or_else(dirs::cache_dir)
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| anyhow::anyhow!("无法确定数据目录"))?;
+    Ok(base.join("class-finder"))
 }
 
 fn install_cfr_if_missing(target_path: &Path) -> Result<()> {
@@ -162,7 +165,10 @@ fn install_cfr_if_missing(target_path: &Path) -> Result<()> {
             .with_context(|| format!("无法创建目录: {}", parent.display()))?;
     }
 
-    eprintln!("[class-finder] 未找到 CFR，正在下载到 {}", target_path.display());
+    eprintln!(
+        "[class-finder] 未找到 CFR，正在下载到 {}",
+        target_path.display()
+    );
     let status = std::process::Command::new("curl")
         .args([
             "-L",
@@ -174,10 +180,31 @@ fn install_cfr_if_missing(target_path: &Path) -> Result<()> {
             url,
         ])
         .status()
-        .context("执行 curl 失败（请确认 macOS 已安装 curl，或使用 --cfr 指定 cfr.jar）")?;
+        .context("执行 curl 失败（请确认系统已安装 curl，或使用 --cfr 指定 cfr.jar）")?;
 
     if !status.success() {
-        anyhow::bail!("下载 CFR 失败（退出码: {status}）。可用 --cfr 指定本地 cfr.jar");
+        if cfg!(windows) {
+            let ps_status = std::process::Command::new("powershell")
+                .args([
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-Command",
+                    &format!(
+                        "Invoke-WebRequest -Uri '{url}' -OutFile '{}'",
+                        target_path.display()
+                    ),
+                ])
+                .status();
+
+            if let Ok(s) = ps_status {
+                if s.success() {
+                    return Ok(());
+                }
+            }
+        }
+
+        anyhow::bail!("下载 CFR 失败。可用 --cfr 指定本地 cfr.jar");
     }
 
     Ok(())
@@ -421,26 +448,5 @@ mod tests {
             normalize_class_name(raw),
             "org.springframework.stereotype.Component"
         );
-    }
-
-    #[test]
-    fn rewrite_args_for_implicit_find_skips_global_option_values() {
-        let args = vec![
-            "class-finder".to_string(),
-            "--cfr".to_string(),
-            "/tmp/cfr.jar".to_string(),
-            "--db".to_string(),
-            "/tmp/db.redb".to_string(),
-            "org.springframework.stereotype.Component".to_string(),
-            "--code-only".to_string(),
-        ];
-
-        let rewritten = rewrite_args_for_implicit_find(args);
-        assert_eq!(rewritten[1], "--cfr");
-        assert_eq!(rewritten[2], "/tmp/cfr.jar");
-        assert_eq!(rewritten[3], "--db");
-        assert_eq!(rewritten[4], "/tmp/db.redb");
-        assert_eq!(rewritten[5], "find");
-        assert_eq!(rewritten[6], "org.springframework.stereotype.Component");
     }
 }

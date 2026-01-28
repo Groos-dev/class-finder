@@ -1,0 +1,118 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }}-${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            os: linux
+            arch: x86_64
+            archive_ext: tar.gz
+          - runner: macos-13
+            target: x86_64-apple-darwin
+            os: macos
+            arch: x86_64
+            archive_ext: tar.gz
+          - runner: macos-14
+            target: aarch64-apple-darwin
+            os: macos
+            arch: aarch64
+            archive_ext: tar.gz
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            os: windows
+            arch: x86_64
+            archive_ext: zip
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          asset="class-finder-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
+          stage="dist/package"
+          rm -rf dist
+          mkdir -p "$stage/bin"
+          cp "target/${{ matrix.target }}/release/class-finder" "$stage/bin/class-finder"
+          cp "README.md" "$stage/README.md"
+          tar -C "$stage" -czf "dist/$asset" .
+          shasum -a 256 "dist/$asset" | awk '{print $1 "  " FILENAME}' FILENAME="$asset" > "dist/$asset.sha256"
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $asset = "class-finder-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.archive_ext }}"
+          Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path dist/package/bin | Out-Null
+          Copy-Item "target/${{ matrix.target }}/release/class-finder.exe" "dist/package/bin/class-finder.exe"
+          Copy-Item "README.md" "dist/package/README.md"
+          Compress-Archive -Path "dist/package/*" -DestinationPath "dist/$asset" -Force
+          $hash = (Get-FileHash "dist/$asset" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $asset" | Out-File -FilePath "dist/$asset.sha256" -Encoding ascii
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*
+
+  release:
+    name: release
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Collect assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          find dist -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec cp -f {} out/ \;
+          cp -f install.sh out/install.sh
+          cp -f install.ps1 out/install.ps1
+          cat out/*.sha256 > out/SHA256SUMS
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/*.tar.gz
+            out/*.zip
+            out/install.sh
+            out/install.ps1
+            out/SHA256SUMS
