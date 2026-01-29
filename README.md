@@ -20,6 +20,26 @@ curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
 ```
 
+#### 指定版本与安装目录
+
+- Linux / macOS（指定版本）：
+
+```bash
+VERSION=v0.0.1-beta.1 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
+- Linux / macOS（指定安装目录）：
+
+```bash
+INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
+- Windows（指定版本）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:Version='v0.0.1-beta.1'; irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+```
+
 ### 源码构建
 
 本项目是 Rust CLI：
