@@ -20,8 +20,15 @@ curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s))"
 ```
 
-安装脚本会自动下载对应平台的 Release 产物，并用 `SHA256SUMS` 做完整性校验。
-同时会把 `find-class` Skill 安装到 `~/.claude/skill/find-class/SKILL.md`（Windows 在 `%USERPROFILE%\\.claude\\skill\\find-class\\SKILL.md`）。
+安装脚本会自动完成三件事：
+- 下载对应平台的 Release 产物，并用 `SHA256SUMS` 做完整性校验
+- 预下载 CFR 到默认数据目录（避免首次运行再下载）：
+  - macOS：`~/Library/Application Support/class-finder/tools/cfr.jar`
+  - Linux：`~/.local/share/class-finder/tools/cfr.jar`（或 `$XDG_DATA_HOME/class-finder/tools/cfr.jar`）
+  - Windows：`%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
+- 安装 `find-class` Skill 到：
+  - macOS/Linux：`~/.claude/skill/find-class/SKILL.md`
+  - Windows：`%USERPROFILE%\\.claude\\skill\\find-class\\SKILL.md`
 
 #### 指定版本与安装目录
 
@@ -54,6 +61,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githu
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s)) -AllowPrerelease"
 ```
+
+#### 其他参数
+
+- 只安装/更新 Skill（指定 ref）：`SKILL_REF=main ... | sh` / `-SkillRef main`
+- CFR 下载地址覆盖：`CFR_URL=... ... | sh` / `-CfrUrl ...`
 
 ### 源码构建
 

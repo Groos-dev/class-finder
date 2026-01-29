@@ -2,7 +2,8 @@ param(
   [string]$Version = "",
   [string]$InstallDir = "",
   [switch]$AllowPrerelease,
-  [string]$SkillRef = ""
+  [string]$SkillRef = "",
+  [string]$CfrUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,6 +72,17 @@ Expand-Archive -Path $zipPath -DestinationPath $unpack -Force
 
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Copy-Item -Force (Join-Path $unpack "bin\class-finder.exe") (Join-Path $InstallDir "class-finder.exe")
+
+$classFinderHome = Join-Path $env:LOCALAPPDATA "class-finder"
+$cfrPath = Join-Path $classFinderHome "tools\cfr.jar"
+if (-not (Test-Path $cfrPath)) {
+  if ([string]::IsNullOrWhiteSpace($CfrUrl)) {
+    $CfrUrl = "https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar"
+  }
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $cfrPath) | Out-Null
+  Write-Host "Downloading CFR $CfrUrl"
+  Invoke-WebRequest -Uri $CfrUrl -OutFile $cfrPath -UseBasicParsing
+}
 
 $skillDir = Join-Path $env:USERPROFILE ".claude\skill\find-class"
 New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
