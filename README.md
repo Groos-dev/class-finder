@@ -17,27 +17,42 @@ curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install
 - Windows（PowerShell）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s))"
 ```
+
+安装脚本会自动下载对应平台的 Release 产物，并用 `SHA256SUMS` 做完整性校验。
+同时会把 `find-class` Skill 安装到 `~/.claude/skill/find-class/SKILL.md`（Windows 在 `%USERPROFILE%\\.claude\\skill\\find-class\\SKILL.md`）。
 
 #### 指定版本与安装目录
 
 - Linux / macOS（指定版本）：
 
 ```bash
-VERSION=v0.0.1-beta.1 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+VERSION=v0.0.1-beta.2 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
 ```
 
-- Linux / macOS（指定安装目录）：
+- Linux / macOS（安装到指定目录）：
 
 ```bash
 INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
 ```
 
+- Linux / macOS（安装预发布版本：自动选择最新 beta/rc/alpha）：
+
+```bash
+ALLOW_PRERELEASE=1 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
 - Windows（指定版本）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:Version='v0.0.1-beta.1'; irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s)) -Version 'v0.0.1-beta.2'"
+```
+
+- Windows（安装预发布版本：自动选择最新 beta/rc/alpha）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s)) -AllowPrerelease"
 ```
 
 ### 源码构建
