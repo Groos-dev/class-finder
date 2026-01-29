@@ -1,12 +1,46 @@
-# class-finder（macOS）
+# class-finder
 
 在本地 Maven 仓库（`~/.m2/repository`）中查找 Java 类所在的 jar，并返回反编译后的源码。
 
-默认会把运行时文件放到 `~/.class-finder/`：
-- `~/.class-finder/tools/cfr.jar`：反编译器（首次运行若不存在会自动下载）
-- `~/.class-finder/db.redb`：反编译源码缓存（redb）
+运行时会自动管理反编译器（CFR）与缓存（redb），用户不需要关心它们的存放位置。
 
 ## 安装
+
+### 一键安装（推荐）
+
+- Linux / macOS：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
+- Windows（PowerShell）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+```
+
+#### 指定版本与安装目录
+
+- Linux / macOS（指定版本）：
+
+```bash
+VERSION=v0.0.1-beta.1 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
+- Linux / macOS（指定安装目录）：
+
+```bash
+INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+```
+
+- Windows（指定版本）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$env:Version='v0.0.1-beta.1'; irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+```
+
+### 源码构建
 
 本项目是 Rust CLI：
 
@@ -82,7 +116,7 @@ class-finder stats
 class-finder clear
 ```
 
-第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中 `~/.class-finder/db.redb` 会显著加速。
+第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中本地缓存会显著加速（可用 `class-finder stats` 查看缓存路径与统计）。
 
 ## 常见问题
 
@@ -93,11 +127,7 @@ class-finder clear
 
 ### CFR 下载失败
 
-如果首次运行自动下载失败，可以手动下载到该位置：
-
-`~/.class-finder/tools/cfr.jar`
-
-或临时使用：
+如果首次运行自动下载失败，可以临时使用：
 
 ```bash
 class-finder --cfr /path/to/cfr.jar org.springframework.stereotype.Component
