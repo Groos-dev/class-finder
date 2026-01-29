@@ -29,7 +29,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.co
 可选参数：
 - 安装目录（macOS/Linux）：`INSTALL_DIR="$HOME/.local/bin" ... | sh`
 - 指定版本（macOS/Linux）：`VERSION=v0.0.1-beta.4 ... | sh`
-- 指定版本（Windows）：`powershell ... -Command \"...\"` 并追加 `-Version 'v0.0.1-beta.4'`
+- 指定版本（Windows）：在命令末尾追加 `-Version 'v0.0.1-beta.4'`
 
 ## 使用规范（推荐默认）
 1. 优先使用全限定名（FQN）查询，并输出源码：
