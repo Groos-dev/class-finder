@@ -1,15 +1,14 @@
 ---
 name: "find-class"
-description: "用 class-finder 在本地 Maven 仓库定位 Java 类所在 jar 并输出反编译源码。用户要查类在哪个 jar、要源码、或只知道 ClassName 时调用。"
+description: "当无法在工作目录查到某个类的实现时，用 class-finder 从本地 Maven 仓库的 jar 中查询并输出该类源码。需要定位 jar 类实现时调用。"
 ---
 
 # find-class
 
 ## 何时使用
-- 用户问“这个 Java 类在哪个 jar 里？”
-- 用户要某个类的反编译源码（给我代码/实现细节）
-- 用户只知道 `ClassName`（不含包名），希望自动推断 FQN
-- 用户想限定某个版本（例如 Spring 6.2.8 的某个类）
+- 当无法在工作目录查到某个类的实现时，可以通过这个 Skill 查询 jar 中的类实现
+- 当你只知道 `ClassName`（不含包名），希望自动在 jar 中探测并推断全限定名（FQN）
+- 当你需要限定依赖版本来定位某个类实现时
 
 ## 前置条件
 - 需要能执行 `class-finder` 命令
@@ -18,19 +17,19 @@ description: "用 class-finder 在本地 Maven 仓库定位 Java 类所在 jar �
 - macOS / Linux：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
 ```
 
 - Windows（PowerShell）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1 | iex"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1; & ([scriptblock]::Create($s))"
 ```
 
 可选参数：
 - 安装目录（macOS/Linux）：`INSTALL_DIR="$HOME/.local/bin" ... | sh`
-- 指定版本（macOS/Linux）：`VERSION=v0.0.1-beta.2 ... | sh`
-- 指定版本（Windows）：`powershell ... \"& { irm ... | iex }\" -Version v0.0.1-beta.2`
+- 指定版本（macOS/Linux）：`VERSION=v0.0.1-beta.4 ... | sh`
+- 指定版本（Windows）：`powershell ... -Command \"...\"` 并追加 `-Version 'v0.0.1-beta.4'`
 
 ## 使用规范（推荐默认）
 1. 优先使用全限定名（FQN）查询，并输出源码：

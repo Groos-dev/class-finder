@@ -11,13 +11,13 @@
 - Linux / macOS：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
 ```
 
 - Windows（PowerShell）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s))"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1; & ([scriptblock]::Create($s))"
 ```
 
 安装脚本会自动完成三件事：
@@ -35,31 +35,31 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githu
 - Linux / macOS（指定版本）：
 
 ```bash
-VERSION=v0.0.1-beta.2 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+VERSION=v0.0.1-beta.4 curl -fsSL https://github.com/Groos-dev/class-finder/releases/download/v0.0.1-beta.4/install.sh | sh
 ```
 
 - Linux / macOS（安装到指定目录）：
 
 ```bash
-INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+INSTALL_DIR="$HOME/.local/bin" curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
 ```
 
 - Linux / macOS（安装预发布版本：自动选择最新 beta/rc/alpha）：
 
 ```bash
-ALLOW_PRERELEASE=1 curl -fsSL https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.sh | sh
+ALLOW_PRERELEASE=1 curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
 ```
 
 - Windows（指定版本）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s)) -Version 'v0.0.1-beta.2'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/download/v0.0.1-beta.4/install.ps1; & ([scriptblock]::Create($s)) -Version 'v0.0.1-beta.4'"
 ```
 
 - Windows（安装预发布版本：自动选择最新 beta/rc/alpha）：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://raw.githubusercontent.com/Groos-dev/class-finder/main/install.ps1; & ([scriptblock]::Create($s)) -AllowPrerelease"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1; & ([scriptblock]::Create($s)) -AllowPrerelease"
 ```
 
 #### 其他参数
