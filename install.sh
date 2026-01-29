@@ -97,6 +97,13 @@ tmp="${TMPDIR:-/tmp}/class-finder-install.$$"
 rm -rf "$tmp"
 mkdir -p "$tmp"
 
+class_finder_home=""
+if [ "$os" = "macos" ]; then
+  class_finder_home="${HOME}/Library/Application Support/class-finder"
+else
+  class_finder_home="${XDG_DATA_HOME:-${HOME}/.local/share}/class-finder"
+fi
+
 echo "Downloading ${url}" >&2
 curl -fL -o "$tmp/$asset" "$url"
 
@@ -131,6 +138,18 @@ tar -C "$tmp/unpack" -xzf "$tmp/$asset"
 mkdir -p "$install_dir"
 cp -f "$tmp/unpack/bin/class-finder" "$install_dir/class-finder"
 chmod +x "$install_dir/class-finder"
+
+default_cfr_url="https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar"
+cfr_url="${CFR_URL:-$default_cfr_url}"
+cfr_dir="${class_finder_home}/tools"
+cfr_path="${cfr_dir}/cfr.jar"
+
+if [ ! -f "$cfr_path" ]; then
+  echo "Downloading CFR (${cfr_url})" >&2
+  mkdir -p "$cfr_dir"
+  curl -fL -o "$tmp/cfr.jar" "$cfr_url"
+  mv -f "$tmp/cfr.jar" "$cfr_path"
+fi
 
 claude_skill_dir="${HOME}/.claude/skill/find-class"
 mkdir -p "$claude_skill_dir"
