@@ -1,18 +1,23 @@
 use anyhow::{Context, Result};
 use clap::Parser;
+use class_finder::buffer::{BufferConfig, PendingWrite, WriteBuffer};
 use class_finder::cache::PersistentCache;
+use class_finder::catalog;
 use class_finder::cfr::Cfr;
 use class_finder::cli::{Cli, Commands, OutputFormat};
+use class_finder::config::{clear_db, resolve_cfr_path, resolve_db_path, resolve_m2_repo};
+use class_finder::hotspot::HotspotTracker;
 use class_finder::parse::{hash_content, parse_decompiled_output};
 use class_finder::probe::{find_class_fqns_in_jar, jar_contains_class};
+use class_finder::registry::ClassRegistry;
 use class_finder::scan::{
-    class_name_to_class_path, default_m2_repository, extract_version_from_maven_path,
-    infer_scan_path, scan_jars,
+    class_name_to_class_path, extract_version_from_maven_path, infer_scan_path, infer_search_paths,
+    scan_jars,
 };
+use class_finder::warmup::{Warmer, WarmerConfig, WarmupTask};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::env;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -24,6 +29,14 @@ fn main() -> Result<()> {
             let db_path = resolve_db_path(&cli)?;
             clear_db(&db_path)?;
         }
+        Commands::Index { path } => {
+            let db_path = resolve_db_path(&cli)?;
+            let cache = PersistentCache::open(db_path)?;
+            let registry = ClassRegistry::new(cache.db());
+            let root = path.unwrap_or(resolve_m2_repo(&cli)?);
+            let output = index_repo(&registry, root)?;
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
         Commands::Stats => {
             let db_path = resolve_db_path(&cli)?;
             let cache = PersistentCache::open(db_path)?;
@@ -34,7 +47,60 @@ fn main() -> Result<()> {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
             let db_path = resolve_db_path(&cli)?;
             let cache = PersistentCache::open(db_path)?;
-            let output = load_jar(&cache, &cfr, &jar_path)?;
+            let registry = ClassRegistry::new(cache.db());
+            let hotspot = HotspotTracker::new(cache.db(), 2);
+            let mut buffer = WriteBuffer::new(
+                cache.db(),
+                BufferConfig::default(),
+                cache.pending_gauge_path(),
+            );
+            let output = load_jar(&cache, &registry, &buffer, &cfr, &jar_path)?;
+            buffer.shutdown_and_flush()?;
+            if !output.skipped {
+                cache.mark_jar_loaded(&output.jar_path)?;
+                let _ = hotspot.mark_warmed(&output.jar_path, output.classes_loaded as u32);
+            }
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        Commands::Warmup {
+            jar_path,
+            hot,
+            group,
+            top,
+            limit,
+        } => {
+            let cfr = Cfr::new(resolve_cfr_path(&cli)?);
+            let db_path = resolve_db_path(&cli)?;
+            let cache = PersistentCache::open(db_path)?;
+            let registry = ClassRegistry::new(cache.db());
+            let hotspot = HotspotTracker::new(cache.db(), 2);
+            let mut buffer = WriteBuffer::new(
+                cache.db(),
+                BufferConfig::default(),
+                cache.pending_gauge_path(),
+            );
+            let m2_repo = resolve_m2_repo(&cli)?;
+            let deps = WarmupDeps {
+                cache: &cache,
+                registry: &registry,
+                hotspot: &hotspot,
+                buffer: &buffer,
+                cfr: &cfr,
+                m2_repo: &m2_repo,
+            };
+            let params = WarmupParams {
+                jar_path: jar_path.as_deref(),
+                hot,
+                group: group.as_deref(),
+                top,
+                limit,
+            };
+            let output = warmup_targets(&deps, params)?;
+            buffer.shutdown_and_flush()?;
+            for (jar_key, class_count) in &output.loaded_jars {
+                cache.mark_jar_loaded(jar_key)?;
+                let _ = hotspot.mark_warmed(jar_key, *class_count);
+            }
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Find {
@@ -47,10 +113,41 @@ fn main() -> Result<()> {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
             let db_path = resolve_db_path(&cli)?;
             let cache = PersistentCache::open(db_path)?;
-            let effective_format = if code_only { OutputFormat::Code } else { format };
+            let registry = ClassRegistry::new(cache.db());
+            let mut buffer = WriteBuffer::new(
+                cache.db(),
+                BufferConfig::default(),
+                cache.pending_gauge_path(),
+            );
+            let hotspot = HotspotTracker::new(cache.db(), 2);
+            let mut warmer = Warmer::new(
+                cfr.clone(),
+                buffer
+                    .handle()
+                    .context("无法创建 WriteBuffer 句柄（预热不可用）")?,
+                Some(hotspot.clone()),
+                WarmerConfig::default(),
+            )?;
+            let effective_format = if code_only {
+                OutputFormat::Code
+            } else {
+                format
+            };
             let class_name = normalize_class_name(&class_name);
-            let result = find_class(&cache, &cfr, resolve_m2_repo(&cli)?, &class_name, version)?;
+            let m2_repo = resolve_m2_repo(&cli)?;
+            let deps = FindDeps {
+                cache: &cache,
+                registry: &registry,
+                buffer: &buffer,
+                warmer: Some(&warmer),
+                hotspot: Some(&hotspot),
+                cfr: &cfr,
+                m2_repo: &m2_repo,
+            };
+            let result = find_class(&deps, &class_name, version)?;
             write_find_output(&result, effective_format, output.as_deref())?;
+            warmer.shutdown_and_drain()?;
+            buffer.shutdown_and_flush()?;
         }
     }
 
@@ -67,7 +164,7 @@ fn rewrite_args_for_implicit_find(mut args: Vec<String>) -> Vec<String> {
         return args;
     }
 
-    let subcommands = ["find", "load", "stats", "clear", "help"];
+    let subcommands = ["find", "load", "warmup", "index", "stats", "clear", "help"];
 
     let mut idx = 1usize;
     while idx < args.len() {
@@ -105,111 +202,6 @@ fn rewrite_args_for_implicit_find(mut args: Vec<String>) -> Vec<String> {
     args
 }
 
-fn resolve_m2_repo(cli: &Cli) -> Result<PathBuf> {
-    if let Some(p) = cli.m2.clone() {
-        return Ok(p);
-    }
-    default_m2_repository()
-}
-
-fn resolve_db_path(cli: &Cli) -> Result<PathBuf> {
-    if let Some(p) = cli.db.clone() {
-        return Ok(p);
-    }
-
-    Ok(class_finder_home()?.join("db.redb"))
-}
-
-fn resolve_cfr_path(cli: &Cli) -> Result<PathBuf> {
-    if let Some(p) = cli.cfr.clone() {
-        return Ok(p);
-    }
-
-    if let Ok(p) = env::var("CFR_JAR") {
-        return Ok(PathBuf::from(p));
-    }
-
-    let default_path = class_finder_home()?.join("tools").join("cfr.jar");
-    if default_path.exists() {
-        return Ok(default_path);
-    }
-
-    install_cfr_if_missing(&default_path)?;
-    Ok(default_path)
-}
-
-fn clear_db(db_path: &Path) -> Result<()> {
-    if db_path.exists() {
-        std::fs::remove_file(db_path)
-            .with_context(|| format!("无法删除 db 文件: {}", db_path.display()))?;
-    }
-    Ok(())
-}
-
-fn class_finder_home() -> Result<PathBuf> {
-    let base = dirs::data_local_dir()
-        .or_else(dirs::cache_dir)
-        .or_else(dirs::home_dir)
-        .ok_or_else(|| anyhow::anyhow!("无法确定数据目录"))?;
-    Ok(base.join("class-finder"))
-}
-
-fn install_cfr_if_missing(target_path: &Path) -> Result<()> {
-    if target_path.exists() {
-        return Ok(());
-    }
-
-    let url = "https://github.com/leibnitz27/cfr/releases/download/0.152/cfr-0.152.jar";
-    if let Some(parent) = target_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("无法创建目录: {}", parent.display()))?;
-    }
-
-    eprintln!(
-        "[class-finder] 未找到 CFR，正在下载到 {}",
-        target_path.display()
-    );
-    let status = std::process::Command::new("curl")
-        .args([
-            "-L",
-            "--fail",
-            "--silent",
-            "--show-error",
-            "-o",
-            target_path.to_str().context("cfr.jar 目标路径不是有效 UTF-8")?,
-            url,
-        ])
-        .status()
-        .context("执行 curl 失败（请确认系统已安装 curl，或使用 --cfr 指定 cfr.jar）")?;
-
-    if !status.success() {
-        if cfg!(windows) {
-            let ps_status = std::process::Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    &format!(
-                        "Invoke-WebRequest -Uri '{url}' -OutFile '{}'",
-                        target_path.display()
-                    ),
-                ])
-                .status();
-
-            if let Ok(s) = ps_status {
-                if s.success() {
-                    return Ok(());
-                }
-            }
-        }
-
-        anyhow::bail!("下载 CFR 失败。可用 --cfr 指定本地 cfr.jar");
-    }
-
-    Ok(())
-}
-
 fn normalize_class_name(raw: &str) -> String {
     let mut s = raw.trim();
     if let Some(rest) = s.strip_prefix("import") {
@@ -228,6 +220,7 @@ struct FindVersion {
     content_hash: String,
     content: String,
     cache_hit: bool,
+    source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -247,31 +240,126 @@ struct LoadResult {
     duration_ms: u64,
 }
 
+#[derive(Debug, Serialize)]
+struct WarmupResult {
+    targets: usize,
+    succeeded: usize,
+    failed: usize,
+    duration_ms: u64,
+    loads: Vec<LoadResult>,
+    loaded_jars: Vec<(String, u32)>,
+}
+
+#[derive(Debug, Serialize)]
+struct IndexResult {
+    root: String,
+    scanned_jars: usize,
+    cataloged_jars_new: usize,
+    indexed_classes: usize,
+    duration_ms: u64,
+    failed_jars: usize,
+}
+
+struct FindDeps<'a> {
+    cache: &'a PersistentCache,
+    registry: &'a ClassRegistry,
+    buffer: &'a WriteBuffer,
+    warmer: Option<&'a Warmer>,
+    hotspot: Option<&'a HotspotTracker>,
+    cfr: &'a Cfr,
+    m2_repo: &'a Path,
+}
+
 fn find_class(
-    cache: &PersistentCache,
-    cfr: &Cfr,
-    m2_repo: PathBuf,
+    deps: &FindDeps<'_>,
     class_name: &str,
     version_filter: Option<String>,
 ) -> Result<FindResult> {
     let start = Instant::now();
-    let (resolved_class_name, mut matched, scan_root) = if class_name.contains('.') {
-        let scan_root = infer_scan_path(&m2_repo, class_name);
-        let jars = scan_jars(&scan_root)?;
+    let m2_repo = deps.m2_repo;
+    let (resolved_class_name, mut matched, scan_root, miss_source) = if class_name.contains('.') {
+        let search_paths = infer_search_paths(m2_repo, class_name);
+        let scan_root = search_paths
+            .first()
+            .cloned()
+            .unwrap_or_else(|| infer_scan_path(m2_repo, class_name));
         let class_path = class_name_to_class_path(class_name);
-
-        let matched: Vec<PathBuf> = jars
-            .par_iter()
-            .filter_map(|jar| match jar_contains_class(jar, &class_path) {
-                Ok(true) => Some(jar.clone()),
-                Ok(false) => None,
-                Err(_) => None,
-            })
+        let mut registry_hits: Vec<PathBuf> = deps
+            .registry
+            .get_artifacts(class_name)?
+            .into_iter()
+            .map(PathBuf::from)
+            .filter(|p| p.exists())
             .collect();
 
-        (class_name.to_string(), matched, scan_root)
+        if let Some(v) = version_filter.clone() {
+            registry_hits
+                .retain(|p| extract_version_from_maven_path(p).as_deref() == Some(v.as_str()));
+        }
+
+        registry_hits.retain(|jar| jar_contains_class(jar, &class_path).unwrap_or(false));
+
+        if !registry_hits.is_empty() {
+            (
+                class_name.to_string(),
+                registry_hits,
+                scan_root,
+                "registry".to_string(),
+            )
+        } else {
+            let mut matched: Vec<PathBuf> = Vec::new();
+            let mut used_scan_root = scan_root.clone();
+
+            for candidate_root in search_paths.iter() {
+                let jars = scan_jars(candidate_root)?;
+                matched = jars
+                    .par_iter()
+                    .filter_map(|jar| match jar_contains_class(jar, &class_path) {
+                        Ok(true) => Some(jar.clone()),
+                        Ok(false) => None,
+                        Err(_) => None,
+                    })
+                    .collect();
+                if !matched.is_empty() {
+                    used_scan_root = candidate_root.clone();
+                    break;
+                }
+            }
+
+            if matched.is_empty() && scan_root.as_path() != m2_repo {
+                let jars = scan_jars(m2_repo)?;
+                matched = jars
+                    .par_iter()
+                    .filter_map(|jar| match jar_contains_class(jar, &class_path) {
+                        Ok(true) => Some(jar.clone()),
+                        Ok(false) => None,
+                        Err(_) => None,
+                    })
+                    .collect();
+                used_scan_root = m2_repo.to_path_buf();
+            }
+
+            for jar_path in matched.iter() {
+                let jar_key = jar_path.to_string_lossy().to_string();
+                if deps.registry.is_cataloged(&jar_key).unwrap_or(false) {
+                    continue;
+                }
+                if let Ok(classes) = catalog::catalog(jar_path) {
+                    let _ = deps
+                        .registry
+                        .update_registry_and_mark_cataloged(&jar_key, &classes);
+                }
+            }
+
+            (
+                class_name.to_string(),
+                matched,
+                used_scan_root,
+                "scan".to_string(),
+            )
+        }
     } else {
-        let scan_root = m2_repo.clone();
+        let scan_root = m2_repo.to_path_buf();
         let jars = scan_jars(&scan_root)?;
 
         let mut fqn_to_jars: HashMap<String, Vec<PathBuf>> = HashMap::new();
@@ -290,16 +378,20 @@ fn find_class(
                     .cmp(&b_jars.len())
                     .then_with(|| a_name.cmp(b_name))
             })
-            .with_context(|| format!("未找到类 {class_name}（扫描目录: {}）", scan_root.display()))?;
+            .with_context(|| {
+                format!("未找到类 {class_name}（扫描目录: {}）", scan_root.display())
+            })?;
 
-        (best_fqn, best_jars, scan_root)
+        (best_fqn, best_jars, scan_root, "scan".to_string())
     };
 
     if let Some(v) = version_filter.clone() {
         matched.retain(|p| extract_version_from_maven_path(p).as_deref() == Some(v.as_str()));
     }
 
-    matched.sort_by(|a, b| extract_version_from_maven_path(a).cmp(&extract_version_from_maven_path(b)));
+    matched.sort_by(|a, b| {
+        extract_version_from_maven_path(a).cmp(&extract_version_from_maven_path(b))
+    });
 
     if matched.is_empty() {
         anyhow::bail!(
@@ -309,24 +401,38 @@ fn find_class(
     }
 
     let mut versions = Vec::new();
-    let mut pending_writes: Vec<(String, String)> = Vec::new();
 
     for jar_path in matched.iter() {
         let jar_key = jar_path.to_string_lossy().to_string();
         let cache_key = format!("{resolved_class_name}::{jar_key}");
+        let warmup_request = deps
+            .hotspot
+            .and_then(|h| h.record_access(&jar_key).ok())
+            .flatten();
 
-        if let Some(content) = cache.get_class_source(&cache_key)? {
+        if let Some(content) = deps.cache.get_class_source(&cache_key)? {
             versions.push(FindVersion {
                 version: extract_version_from_maven_path(jar_path),
                 jar_path: jar_key,
                 content_hash: hash_content(&content),
                 content,
                 cache_hit: true,
+                source: "cache".to_string(),
             });
+            if let (Some(warmer), Some(req)) = (deps.warmer, warmup_request) {
+                let mut exclude_fqns = HashSet::new();
+                exclude_fqns.insert(resolved_class_name.clone());
+                let _ = warmer.submit(WarmupTask {
+                    jar_path: jar_path.clone(),
+                    priority: req.priority,
+                    mode: req.mode,
+                    exclude_fqns,
+                });
+            }
             continue;
         }
 
-        let decompiled = cfr.decompile_class(jar_path, &resolved_class_name)?;
+        let decompiled = deps.cfr.decompile_class(jar_path, &resolved_class_name)?;
         let parsed = parse_decompiled_output(&decompiled);
         let content = parsed
             .iter()
@@ -335,17 +441,29 @@ fn find_class(
             .unwrap_or(decompiled);
         let content_hash = hash_content(&content);
 
-        pending_writes.push((cache_key, content.clone()));
+        let _ = deps.buffer.enqueue(PendingWrite {
+            key: cache_key,
+            source: content.clone(),
+        });
+        if let (Some(warmer), Some(req)) = (deps.warmer, warmup_request) {
+            let mut exclude_fqns = HashSet::new();
+            exclude_fqns.insert(resolved_class_name.clone());
+            let _ = warmer.submit(WarmupTask {
+                jar_path: jar_path.clone(),
+                priority: req.priority,
+                mode: req.mode,
+                exclude_fqns,
+            });
+        }
         versions.push(FindVersion {
             version: extract_version_from_maven_path(jar_path),
             jar_path: jar_key,
             content_hash,
             content,
             cache_hit: false,
+            source: miss_source.clone(),
         });
     }
-
-    let _ = cache.put_class_sources(&pending_writes)?;
 
     Ok(FindResult {
         class_name: resolved_class_name,
@@ -356,9 +474,21 @@ fn find_class(
     })
 }
 
-fn load_jar(cache: &PersistentCache, cfr: &Cfr, jar_path: &Path) -> Result<LoadResult> {
+fn load_jar(
+    cache: &PersistentCache,
+    registry: &ClassRegistry,
+    buffer: &WriteBuffer,
+    cfr: &Cfr,
+    jar_path: &Path,
+) -> Result<LoadResult> {
     let jar_key = jar_path.to_string_lossy().to_string();
     let start = Instant::now();
+
+    if !registry.is_cataloged(&jar_key).unwrap_or(false)
+        && let Ok(classes) = catalog::catalog(jar_path)
+    {
+        let _ = registry.update_registry_and_mark_cataloged(&jar_key, &classes);
+    }
 
     if cache.is_jar_loaded(&jar_key)? {
         return Ok(LoadResult {
@@ -371,15 +501,15 @@ fn load_jar(cache: &PersistentCache, cfr: &Cfr, jar_path: &Path) -> Result<LoadR
 
     let decompiled = cfr.decompile_jar(jar_path)?;
     let classes = parse_decompiled_output(&decompiled);
+    let classes_loaded = classes.len();
 
-    let mut entries = Vec::with_capacity(classes.len());
     for cls in classes {
         let key = format!("{}::{jar_key}", cls.class_name);
-        entries.push((key, cls.content));
+        let _ = buffer.enqueue(PendingWrite {
+            key,
+            source: cls.content,
+        });
     }
-
-    let classes_loaded = cache.put_class_sources(&entries)?;
-    cache.mark_jar_loaded(&jar_key)?;
 
     Ok(LoadResult {
         jar_path: jar_key,
@@ -389,7 +519,118 @@ fn load_jar(cache: &PersistentCache, cfr: &Cfr, jar_path: &Path) -> Result<LoadR
     })
 }
 
-fn write_find_output(result: &FindResult, format: OutputFormat, output: Option<&Path>) -> Result<()> {
+struct WarmupDeps<'a> {
+    cache: &'a PersistentCache,
+    registry: &'a ClassRegistry,
+    hotspot: &'a HotspotTracker,
+    buffer: &'a WriteBuffer,
+    cfr: &'a Cfr,
+    m2_repo: &'a Path,
+}
+
+struct WarmupParams<'a> {
+    jar_path: Option<&'a Path>,
+    hot: bool,
+    group: Option<&'a str>,
+    top: usize,
+    limit: Option<usize>,
+}
+
+fn warmup_targets(deps: &WarmupDeps<'_>, params: WarmupParams<'_>) -> Result<WarmupResult> {
+    let start = Instant::now();
+    let mut targets: Vec<PathBuf> = if params.hot {
+        deps.hotspot
+            .top_unwarmed_jars(params.top)?
+            .into_iter()
+            .map(PathBuf::from)
+            .collect()
+    } else if let Some(group) = params.group {
+        let dir = deps.m2_repo.join(group.replace('.', "/"));
+        if dir.exists() {
+            scan_jars(&dir)?
+        } else {
+            Vec::new()
+        }
+    } else if let Some(jar_path) = params.jar_path {
+        vec![jar_path.to_path_buf()]
+    } else {
+        anyhow::bail!("warmup 需要指定 jar_path，或使用 --hot / --group");
+    };
+
+    if let Some(limit) = params.limit {
+        targets.truncate(limit);
+    }
+
+    let mut loads = Vec::new();
+    let mut loaded_jars: Vec<(String, u32)> = Vec::new();
+    let mut succeeded = 0usize;
+    let mut failed = 0usize;
+
+    for jar in targets.iter() {
+        match load_jar(deps.cache, deps.registry, deps.buffer, deps.cfr, jar) {
+            Ok(load) => {
+                succeeded += 1;
+                if !load.skipped {
+                    loaded_jars.push((load.jar_path.clone(), load.classes_loaded as u32));
+                }
+                loads.push(load);
+            }
+            Err(_) => {
+                failed += 1;
+            }
+        }
+    }
+
+    Ok(WarmupResult {
+        targets: targets.len(),
+        succeeded,
+        failed,
+        duration_ms: start.elapsed().as_millis() as u64,
+        loads,
+        loaded_jars,
+    })
+}
+
+fn index_repo(registry: &ClassRegistry, root: PathBuf) -> Result<IndexResult> {
+    let start = Instant::now();
+    let jars = scan_jars(&root)?;
+    let mut cataloged_jars_new = 0usize;
+    let mut indexed_classes = 0usize;
+    let mut failed_jars = 0usize;
+
+    for jar_path in jars.iter() {
+        let jar_key = jar_path.to_string_lossy().to_string();
+        if registry.is_cataloged(&jar_key).unwrap_or(false) {
+            continue;
+        }
+
+        match catalog::catalog(jar_path) {
+            Ok(classes) => {
+                indexed_classes += classes.len();
+                let _ = registry.update_registry_and_mark_cataloged(&jar_key, &classes);
+                cataloged_jars_new += 1;
+            }
+            Err(_) => {
+                failed_jars += 1;
+            }
+        }
+    }
+
+    Ok(IndexResult {
+        root: root.to_string_lossy().to_string(),
+        scanned_jars: jars.len(),
+        cataloged_jars_new,
+        indexed_classes,
+        duration_ms: start.elapsed().as_millis() as u64,
+        failed_jars,
+    })
+}
+
+fn write_find_output(
+    result: &FindResult,
+    format: OutputFormat,
+    output: Option<&Path>,
+) -> Result<()> {
     let content = match format {
         OutputFormat::Json => serde_json::to_string_pretty(result)?,
         OutputFormat::Text => {
@@ -399,8 +640,8 @@ fn write_find_output(result: &FindResult, format: OutputFormat, output: Option<&
             out.push_str(&format!("duration_ms: {}\n", result.duration_ms));
             for v in &result.versions {
                 out.push_str(&format!(
-                    "- version: {:?}, cache_hit: {}, jar: {}\n",
-                    v.version, v.cache_hit, v.jar_path
+                    "- version: {:?}, source: {}, cache_hit: {}, jar: {}\n",
+                    v.version, v.source, v.cache_hit, v.jar_path
                 ));
             }
             out
@@ -412,10 +653,10 @@ fn write_find_output(result: &FindResult, format: OutputFormat, output: Option<&
     };
 
     if let Some(path) = output {
-        if let Some(parent) = path.parent() {
-            if !parent.as_os_str().is_empty() {
-                std::fs::create_dir_all(parent)?;
-            }
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
         }
         std::fs::write(path, content)?;
     } else {
@@ -431,8 +672,7 @@ fn write_find_output(result: &FindResult, format: OutputFormat, output: Option<&
 fn choose_default_version(versions: &[FindVersion]) -> Result<&FindVersion> {
     versions
         .iter()
-        .filter(|v| v.version.is_some())
-        .last()
+        .rfind(|v| v.version.is_some())
         .or_else(|| versions.first())
         .context("没有可用的反编译结果")
 }

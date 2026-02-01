@@ -66,10 +66,10 @@ pub fn extract_class_name(content: &str) -> Option<String> {
             }
         }
 
-        if type_name.is_none() {
-            if let Some(name) = extract_type_name_from_line(line) {
-                type_name = Some(name);
-            }
+        if type_name.is_none()
+            && let Some(name) = extract_type_name_from_line(line)
+        {
+            type_name = Some(name);
         }
 
         if package.is_some() && type_name.is_some() {
@@ -85,13 +85,7 @@ pub fn extract_class_name(content: &str) -> Option<String> {
 }
 
 fn extract_type_name_from_line(line: &str) -> Option<String> {
-    let keywords = [
-        "class ",
-        "interface ",
-        "enum ",
-        "record ",
-        "@interface ",
-    ];
+    let keywords = ["class ", "interface ", "enum ", "record ", "@interface "];
 
     for kw in keywords {
         if let Some(pos) = line.find(kw) {

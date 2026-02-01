@@ -64,6 +64,7 @@ jobs:
           mkdir -p "$stage/bin"
           cp "target/${{ matrix.target }}/release/class-finder" "$stage/bin/class-finder"
           cp "README.md" "$stage/README.md"
+          cp "LICENSE" "$stage/LICENSE"
           tar -C "$stage" -czf "dist/$asset" .
           shasum -a 256 "dist/$asset" | awk '{print $1 "  " FILENAME}' FILENAME="$asset" > "dist/$asset.sha256"
 
@@ -76,6 +77,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist/package/bin | Out-Null
           Copy-Item "target/${{ matrix.target }}/release/class-finder.exe" "dist/package/bin/class-finder.exe"
           Copy-Item "README.md" "dist/package/README.md"
+          Copy-Item "LICENSE" "dist/package/LICENSE"
           Compress-Archive -Path "dist/package/*" -DestinationPath "dist/$asset" -Force
           $hash = (Get-FileHash "dist/$asset" -Algorithm SHA256).Hash.ToLower()
           "$hash  $asset" | Out-File -FilePath "dist/$asset.sha256" -Encoding ascii

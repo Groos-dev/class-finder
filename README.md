@@ -27,8 +27,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.co
   - Linux：`~/.local/share/class-finder/tools/cfr.jar`（或 `$XDG_DATA_HOME/class-finder/tools/cfr.jar`）
   - Windows：`%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
 - 安装 `find-class` Skill 到：
-  - macOS/Linux：`~/.claude/skill/find-class/SKILL.md`
-  - Windows：`%USERPROFILE%\\.claude\\skill\\find-class\\SKILL.md`
+  - macOS/Linux：`~/.claude/skills/find-class/SKILL.md`
+  - Windows：`%USERPROFILE%\\.claude\\skills\\find-class\\SKILL.md`
 
 #### 指定版本与安装目录
 
@@ -165,3 +165,11 @@ class-finder --cfr /path/to/cfr.jar org.springframework.stereotype.Component
 ```bash
 cargo test
 ```
+
+## 贡献
+
+见 [CONTRIBUTING.md](file:///Users/groos/KnowledgeBase/class-finder/CONTRIBUTING.md)
+
+## License
+
+MIT，见 [LICENSE](file:///Users/groos/KnowledgeBase/class-finder/LICENSE)

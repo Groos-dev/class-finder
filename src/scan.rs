@@ -8,21 +8,34 @@ pub fn default_m2_repository() -> Result<PathBuf> {
     Ok(home.join(".m2").join("repository"))
 }
 
-pub fn infer_scan_path(m2_repo: &Path, class_name: &str) -> PathBuf {
+pub fn infer_search_paths(m2_repo: &Path, class_name: &str) -> Vec<PathBuf> {
     let parts: Vec<&str> = class_name.split('.').collect();
     if parts.len() < 3 {
-        return m2_repo.to_path_buf();
+        return vec![m2_repo.to_path_buf()];
     }
 
-    for i in (2..parts.len().saturating_sub(1)).rev() {
+    let mut paths = Vec::new();
+    let max = parts.len().saturating_sub(1);
+    for i in (2..=max).rev() {
         let prefix = parts[..i].join("/");
         let path = m2_repo.join(prefix);
         if path.exists() {
-            return path;
+            paths.push(path);
         }
     }
 
-    m2_repo.to_path_buf()
+    if paths.is_empty() {
+        paths.push(m2_repo.to_path_buf());
+    }
+
+    paths
+}
+
+pub fn infer_scan_path(m2_repo: &Path, class_name: &str) -> PathBuf {
+    infer_search_paths(m2_repo, class_name)
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| m2_repo.to_path_buf())
 }
 
 pub fn scan_jars(base_path: &Path) -> Result<Vec<PathBuf>> {
@@ -90,5 +103,29 @@ mod tests {
 
         let inferred = infer_scan_path(&m2, "org.apache.commons.lang3.StringUtils");
         assert_eq!(inferred, target);
+    }
+
+    #[test]
+    fn infer_search_paths_returns_tiered_candidates_narrow_to_wide() {
+        let base = temp_dir("class-finder-search-paths");
+        let m2 = base.join("repository");
+        let narrow = m2.join("org/apache/commons/lang3");
+        let wide = m2.join("org/apache/commons");
+        let widest = m2.join("org/apache");
+        fs::create_dir_all(&narrow).unwrap();
+        fs::create_dir_all(&wide).unwrap();
+
+        let paths = infer_search_paths(&m2, "org.apache.commons.lang3.StringUtils");
+        assert_eq!(paths, vec![narrow, wide, widest]);
+    }
+
+    #[test]
+    fn infer_search_paths_falls_back_to_repo_root_for_short_names() {
+        let base = temp_dir("class-finder-search-paths-short");
+        let m2 = base.join("repository");
+        fs::create_dir_all(&m2).unwrap();
+
+        let paths = infer_search_paths(&m2, "StringUtils");
+        assert_eq!(paths, vec![m2]);
     }
 }

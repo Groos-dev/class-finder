@@ -38,6 +38,26 @@ pub enum Commands {
     Load {
         jar_path: PathBuf,
     },
+    Warmup {
+        #[arg(value_name = "JAR")]
+        jar_path: Option<PathBuf>,
+
+        #[arg(long)]
+        hot: bool,
+
+        #[arg(long, value_name = "GROUP")]
+        group: Option<String>,
+
+        #[arg(long, value_name = "N", default_value_t = 20)]
+        top: usize,
+
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    Index {
+        #[arg(long, value_name = "DIR")]
+        path: Option<PathBuf>,
+    },
     Stats,
     Clear,
 }

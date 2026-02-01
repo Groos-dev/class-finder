@@ -15,6 +15,7 @@ mkdir -p "${dist_dir}/package/bin"
 
 cp -f "target/release/class-finder" "${dist_dir}/package/bin/class-finder"
 cp -f "README.md" "${dist_dir}/package/README.md"
+cp -f "LICENSE" "${dist_dir}/package/LICENSE"
 
 tarball="${dist_dir}/class-finder-${os}-${arch}.tar.gz"
 tar -C "${dist_dir}/package" -czf "$tarball" .

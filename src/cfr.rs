@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::process::Command;
 
@@ -16,7 +16,9 @@ impl Cfr {
         let output = Command::new("java")
             .args([
                 "-jar",
-                self.cfr_jar.to_str().context("cfr.jar 路径不是有效 UTF-8")?,
+                self.cfr_jar
+                    .to_str()
+                    .context("cfr.jar 路径不是有效 UTF-8")?,
                 "--extraclasspath",
                 jar_path.to_str().context("jar 路径不是有效 UTF-8")?,
                 class_name,
@@ -40,7 +42,9 @@ impl Cfr {
         let output = Command::new("java")
             .args([
                 "-jar",
-                self.cfr_jar.to_str().context("cfr.jar 路径不是有效 UTF-8")?,
+                self.cfr_jar
+                    .to_str()
+                    .context("cfr.jar 路径不是有效 UTF-8")?,
                 jar_path.to_str().context("jar 路径不是有效 UTF-8")?,
                 "--silent",
                 "true",
