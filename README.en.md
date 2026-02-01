@@ -131,7 +131,59 @@ class-finder org.springframework.stereotype.Component --format text
 class-finder org.springframework.stereotype.Component --version 6.2.8 --code-only
 ```
 
-## Cache
+## Advanced Features
+
+### Index Building
+
+Build a class-to-JAR mapping index to accelerate subsequent queries:
+
+```bash
+class-finder index
+```
+
+Specify scan path:
+
+```bash
+class-finder index --path /path/to/maven/repo
+```
+
+### Manual JAR Loading
+
+Manually load a specific JAR file, parse all classes and cache them:
+
+```bash
+class-finder load /path/to/your.jar
+```
+
+### Warmup System
+
+Preload frequently used JARs and cache decompiled results in advance:
+
+- Warmup most frequently accessed JARs:
+
+```bash
+class-finder warmup --hot
+```
+
+- Warmup all JARs from a specific Maven group:
+
+```bash
+class-finder warmup --group org.springframework
+```
+
+- Warmup top N hotspot JARs:
+
+```bash
+class-finder warmup --top 10
+```
+
+- Warmup a specific JAR:
+
+```bash
+class-finder warmup /path/to/your.jar
+```
+
+## Cache Management
 
 - View cache statistics:
 
@@ -139,13 +191,20 @@ class-finder org.springframework.stereotype.Component --version 6.2.8 --code-onl
 class-finder stats
 ```
 
+Output includes:
+- Number of cached sources
+- Number of indexed classes
+- Number of loaded JARs
+- Hotspot JAR statistics
+- Warmup status
+
 - Clear cache:
 
 ```bash
 class-finder clear
 ```
 
-The first query will be slower (needs to scan JARs and decompile), but subsequent queries will be significantly faster when hitting the local cache (use `class-finder stats` to view cache path and statistics).
+The first query will be slower (needs to scan JARs and decompile), but subsequent queries will be significantly faster when hitting the local cache. Use `index` and `warmup` commands to build indexes and caches in advance for even faster queries.
 
 ## FAQ
 

@@ -131,7 +131,59 @@ class-finder org.springframework.stereotype.Component --format text
 class-finder org.springframework.stereotype.Component --version 6.2.8 --code-only
 ```
 
-## 缓存
+## 高级功能
+
+### 索引构建
+
+构建类名到 JAR 的映射索引，加速后续查询：
+
+```bash
+class-finder index
+```
+
+指定扫描路径：
+
+```bash
+class-finder index --path /path/to/maven/repo
+```
+
+### 手动加载 JAR
+
+手动加载指定 JAR 文件，解析所有类并缓存：
+
+```bash
+class-finder load /path/to/your.jar
+```
+
+### 预热系统
+
+预热常用 JAR，提前缓存反编译结果：
+
+- 预热访问频率最高的 JAR：
+
+```bash
+class-finder warmup --hot
+```
+
+- 预热指定 Maven group 的所有 JAR：
+
+```bash
+class-finder warmup --group org.springframework
+```
+
+- 预热前 N 个热点 JAR：
+
+```bash
+class-finder warmup --top 10
+```
+
+- 预热指定 JAR：
+
+```bash
+class-finder warmup /path/to/your.jar
+```
+
+## 缓存管理
 
 - 查看缓存统计：
 
@@ -139,13 +191,20 @@ class-finder org.springframework.stereotype.Component --version 6.2.8 --code-onl
 class-finder stats
 ```
 
+输出包括：
+- 缓存的源码数量
+- 已索引的类数量
+- 已加载的 JAR 数量
+- 热点 JAR 统计
+- 预热状态
+
 - 清空缓存：
 
 ```bash
 class-finder clear
 ```
 
-第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中本地缓存会显著加速（可用 `class-finder stats` 查看缓存路径与统计）。
+第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中本地缓存会显著加速。使用 `index` 和 `warmup` 命令可以提前构建索引和缓存，进一步提升查询速度。
 
 ## 常见问题
 
