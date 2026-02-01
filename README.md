@@ -1,5 +1,7 @@
 # class-finder
 
+[English](README.en.md) | 简体中文
+
 在本地 Maven 仓库（`~/.m2/repository`）中查找 Java 类所在的 jar，并返回反编译后的源码。
 
 运行时会自动管理反编译器（CFR）与缓存（redb），用户不需要关心它们的存放位置。
@@ -150,7 +152,7 @@ class-finder clear
 ### 找不到类
 
 - 确认该类对应的依赖已下载到 `~/.m2/repository`
-- 对 ClassName 查询：如果同名类很多，可能会优先选择“出现次数最多”的全限定名
+- 对 ClassName 查询：如果同名类很多，可能会优先选择"出现次数最多"的全限定名
 
 ### CFR 下载失败
 
@@ -168,8 +170,8 @@ cargo test
 
 ## 贡献
 
-见 [CONTRIBUTING.md](file:///Users/groos/KnowledgeBase/class-finder/CONTRIBUTING.md)
+见 [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-MIT，见 [LICENSE](file:///Users/groos/KnowledgeBase/class-finder/LICENSE)
+MIT，见 [LICENSE](LICENSE)
