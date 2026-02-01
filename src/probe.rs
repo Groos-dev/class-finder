@@ -6,16 +6,24 @@ use std::path::Path;
 use zip::ZipArchive;
 
 pub fn jar_contains_class(jar_path: &Path, class_path: &str) -> Result<bool> {
-    let file = File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
-    let mmap = unsafe { Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))? };
+    let file =
+        File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
+    // SAFETY: The file is opened read-only and remains valid for the lifetime of the mmap.
+    let mmap = unsafe {
+        Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))?
+    };
     let mut archive = ZipArchive::new(Cursor::new(&mmap[..]))
         .with_context(|| format!("无法读取 zip 结构: {}", jar_path.display()))?;
     Ok(archive.by_name(class_path).is_ok())
 }
 
 pub fn find_class_fqns_in_jar(jar_path: &Path, simple_class_name: &str) -> Result<Vec<String>> {
-    let file = File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
-    let mmap = unsafe { Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))? };
+    let file =
+        File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
+    // SAFETY: The file is opened read-only and remains valid for the lifetime of the mmap.
+    let mmap = unsafe {
+        Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))?
+    };
     let mut archive = ZipArchive::new(Cursor::new(&mmap[..]))
         .with_context(|| format!("无法读取 zip 结构: {}", jar_path.display()))?;
 
@@ -82,8 +90,12 @@ mod tests {
         zip.write_all(b"dummy").unwrap();
         zip.finish().unwrap();
 
-        assert!(jar_contains_class(&jar_path, "org/apache/commons/lang3/StringUtils.class").unwrap());
-        assert!(!jar_contains_class(&jar_path, "org/apache/commons/lang3/ArrayUtils.class").unwrap());
+        assert!(
+            jar_contains_class(&jar_path, "org/apache/commons/lang3/StringUtils.class").unwrap()
+        );
+        assert!(
+            !jar_contains_class(&jar_path, "org/apache/commons/lang3/ArrayUtils.class").unwrap()
+        );
 
         let _ = fs::remove_file(&jar_path);
     }

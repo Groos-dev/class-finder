@@ -1,4 +1,64 @@
+# Rust build artifacts
 /target
+Cargo.lock
+
+# Project-specific directories
 /.tools
 /.class-finder
 /dist
+/.trae
+
+# Database files
+*.redb
+*.redb-lock
+*.db
+*.db-shm
+*.db-wal
+
+# IDE and editor files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.vim/
+.helix/
+
+# Rust-specific
+**/*.rs.bk
+*.pdb
+
+# Testing and coverage
+*.profraw
+*.profdata
+/coverage/
+/lcov.info
+
+# Documentation build
+/target/doc/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.pending
+
+# OS-specific
+Thumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+.env.local
+*.key
+*.pem
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# CFR jar (downloaded at runtime)
+cfr.jar
+cfr-*.jar
