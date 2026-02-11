@@ -8,7 +8,8 @@
 //! to continue processing without blocking on database writes.
 
 use anyhow::Result;
-use redb::Database;
+use heed::types::Str;
+use heed::{Database, Env};
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -17,7 +18,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::cache::CLASSES_TABLE;
+use crate::cache::CLASSES_DB;
+
+type StrDb = Database<Str, Str>;
 
 #[derive(Debug, Clone)]
 pub struct PendingWrite {
@@ -73,7 +76,7 @@ pub struct WriteBuffer {
 }
 
 impl WriteBuffer {
-    pub fn new(db: Arc<Database>, config: BufferConfig, gauge_path: PathBuf) -> Self {
+    pub fn new(db: Arc<Env>, config: BufferConfig, gauge_path: PathBuf) -> Self {
         let (tx, rx) = std::sync::mpsc::channel::<PendingWrite>();
         let pending = Arc::new(AtomicUsize::new(0));
         let pending_for_thread = Arc::clone(&pending);
@@ -129,7 +132,7 @@ impl WriteBuffer {
 
 fn spawn_flusher(
     rx: Receiver<PendingWrite>,
-    db: Arc<Database>,
+    db: Arc<Env>,
     config: BufferConfig,
     pending: Arc<AtomicUsize>,
     gauge_path: Option<PathBuf>,
@@ -185,18 +188,16 @@ fn spawn_flusher(
     })
 }
 
-fn batch_write(db: &Database, batch: &[PendingWrite]) -> Result<()> {
+fn batch_write(env: &Env, batch: &[PendingWrite]) -> Result<()> {
     if batch.is_empty() {
         return Ok(());
     }
-    let txn = db.begin_write()?;
-    {
-        let mut table = txn.open_table(CLASSES_TABLE)?;
-        for entry in batch {
-            table.insert(entry.key.as_str(), entry.source.as_str())?;
-        }
+    let mut wtxn = env.write_txn()?;
+    let table: StrDb = env.create_database::<Str, Str>(&mut wtxn, Some(CLASSES_DB))?;
+    for entry in batch {
+        table.put(&mut wtxn, entry.key.as_str(), entry.source.as_str())?;
     }
-    txn.commit()?;
+    wtxn.commit()?;
     Ok(())
 }
 

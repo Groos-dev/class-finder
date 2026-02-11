@@ -4,7 +4,7 @@
 //!
 //! ## Architecture
 //!
-//! - **cache**: Persistent storage using redb for decompiled sources and metadata
+//! - **cache**: Persistent storage using LMDB for decompiled sources and metadata
 //! - **registry**: Class-to-JAR mapping index for fast lookups
 //! - **scan**: JAR file discovery in Maven repository structure
 //! - **probe**: JAR inspection utilities for class existence checks

@@ -1,24 +1,26 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use class_finder::buffer::{BufferConfig, PendingWrite, WriteBuffer};
-use class_finder::cache::PersistentCache;
+use class_finder::cache::{PersistentCache, ReadOnlyCache};
 use class_finder::catalog;
 use class_finder::cfr::Cfr;
 use class_finder::cli::{Cli, Commands, OutputFormat};
-use class_finder::config::{clear_db, resolve_cfr_path, resolve_db_path, resolve_m2_repo};
+use class_finder::config::{
+    clear_db, publish_snapshot, resolve_cfr_path, resolve_db_path, resolve_m2_repo,
+    resolve_snapshot_db_path,
+};
 use class_finder::hotspot::HotspotTracker;
 use class_finder::parse::{hash_content, parse_decompiled_output};
 use class_finder::probe::{find_class_fqns_in_jar, jar_contains_class};
-use class_finder::registry::ClassRegistry;
+use class_finder::registry::{ClassRegistry, ReadOnlyClassRegistry};
 use class_finder::scan::{
     class_name_to_class_path, extract_version_from_maven_path, infer_scan_path, infer_search_paths,
     scan_jars,
 };
 use class_finder::structure::{ClassStructure, parse_class_structure};
-use class_finder::warmup::{Warmer, WarmerConfig, WarmupTask};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -32,35 +34,44 @@ fn main() -> Result<()> {
         }
         Commands::Index { path } => {
             let db_path = resolve_db_path(&cli)?;
-            let cache = PersistentCache::open(db_path)?;
-            let registry = ClassRegistry::new(cache.db());
-            let root = path.unwrap_or(resolve_m2_repo(&cli)?);
-            let output = index_repo(&registry, root)?;
+            let output = {
+                let cache = PersistentCache::open(db_path.clone())?;
+                let registry = ClassRegistry::new(cache.db());
+                let root = path.unwrap_or(resolve_m2_repo(&cli)?);
+                index_repo(&registry, root)?
+            };
+            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
+            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Stats => {
-            let db_path = resolve_db_path(&cli)?;
-            let cache = PersistentCache::open(db_path)?;
+            let db_path = resolve_snapshot_db_path(&cli)?;
+            let cache = ReadOnlyCache::open(db_path)?;
             let stats = cache.stats()?;
             println!("{}", serde_json::to_string_pretty(&stats)?);
         }
         Commands::Load { jar_path } => {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
             let db_path = resolve_db_path(&cli)?;
-            let cache = PersistentCache::open(db_path)?;
-            let registry = ClassRegistry::new(cache.db());
-            let hotspot = HotspotTracker::new(cache.db(), 2);
-            let mut buffer = WriteBuffer::new(
-                cache.db(),
-                BufferConfig::default(),
-                cache.pending_gauge_path(),
-            );
-            let output = load_jar(&cache, &registry, &buffer, &cfr, &jar_path)?;
-            buffer.shutdown_and_flush()?;
-            if !output.skipped {
-                cache.mark_jar_loaded(&output.jar_path)?;
-                let _ = hotspot.mark_warmed(&output.jar_path, output.classes_loaded as u32);
-            }
+            let output = {
+                let cache = PersistentCache::open(db_path.clone())?;
+                let registry = ClassRegistry::new(cache.db());
+                let hotspot = HotspotTracker::new(cache.db(), 2);
+                let mut buffer = WriteBuffer::new(
+                    cache.db(),
+                    BufferConfig::default(),
+                    cache.pending_gauge_path(),
+                );
+                let output = load_jar(&cache, &registry, &buffer, &cfr, &jar_path)?;
+                buffer.shutdown_and_flush()?;
+                if !output.skipped {
+                    cache.mark_jar_loaded(&output.jar_path)?;
+                    let _ = hotspot.mark_warmed(&output.jar_path, output.classes_loaded as u32);
+                }
+                output
+            };
+            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
+            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Warmup {
@@ -72,36 +83,41 @@ fn main() -> Result<()> {
         } => {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
             let db_path = resolve_db_path(&cli)?;
-            let cache = PersistentCache::open(db_path)?;
-            let registry = ClassRegistry::new(cache.db());
-            let hotspot = HotspotTracker::new(cache.db(), 2);
-            let mut buffer = WriteBuffer::new(
-                cache.db(),
-                BufferConfig::default(),
-                cache.pending_gauge_path(),
-            );
-            let m2_repo = resolve_m2_repo(&cli)?;
-            let deps = WarmupDeps {
-                cache: &cache,
-                registry: &registry,
-                hotspot: &hotspot,
-                buffer: &buffer,
-                cfr: &cfr,
-                m2_repo: &m2_repo,
+            let output = {
+                let cache = PersistentCache::open(db_path.clone())?;
+                let registry = ClassRegistry::new(cache.db());
+                let hotspot = HotspotTracker::new(cache.db(), 2);
+                let mut buffer = WriteBuffer::new(
+                    cache.db(),
+                    BufferConfig::default(),
+                    cache.pending_gauge_path(),
+                );
+                let m2_repo = resolve_m2_repo(&cli)?;
+                let deps = WarmupDeps {
+                    cache: &cache,
+                    registry: &registry,
+                    hotspot: &hotspot,
+                    buffer: &buffer,
+                    cfr: &cfr,
+                    m2_repo: &m2_repo,
+                };
+                let params = WarmupParams {
+                    jar_path: jar_path.as_deref(),
+                    hot,
+                    group: group.as_deref(),
+                    top,
+                    limit,
+                };
+                let output = warmup_targets(&deps, params)?;
+                buffer.shutdown_and_flush()?;
+                for (jar_key, class_count) in &output.loaded_jars {
+                    cache.mark_jar_loaded(jar_key)?;
+                    let _ = hotspot.mark_warmed(jar_key, *class_count);
+                }
+                output
             };
-            let params = WarmupParams {
-                jar_path: jar_path.as_deref(),
-                hot,
-                group: group.as_deref(),
-                top,
-                limit,
-            };
-            let output = warmup_targets(&deps, params)?;
-            buffer.shutdown_and_flush()?;
-            for (jar_key, class_count) in &output.loaded_jars {
-                cache.mark_jar_loaded(jar_key)?;
-                let _ = hotspot.mark_warmed(jar_key, *class_count);
-            }
+            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
+            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Find {
@@ -112,23 +128,9 @@ fn main() -> Result<()> {
             output,
         } => {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
-            let db_path = resolve_db_path(&cli)?;
-            let cache = PersistentCache::open(db_path)?;
-            let registry = ClassRegistry::new(cache.db());
-            let mut buffer = WriteBuffer::new(
-                cache.db(),
-                BufferConfig::default(),
-                cache.pending_gauge_path(),
-            );
-            let hotspot = HotspotTracker::new(cache.db(), 2);
-            let mut warmer = Warmer::new(
-                cfr.clone(),
-                buffer
-                    .handle()
-                    .context("无法创建 WriteBuffer 句柄（预热不可用）")?,
-                Some(hotspot.clone()),
-                WarmerConfig::default(),
-            )?;
+            let db_path = resolve_snapshot_db_path(&cli)?;
+            let cache = ReadOnlyCache::open(db_path)?;
+            let registry = ReadOnlyClassRegistry::new(cache.db());
             let effective_format = if code_only {
                 OutputFormat::Code
             } else {
@@ -139,16 +141,11 @@ fn main() -> Result<()> {
             let deps = FindDeps {
                 cache: &cache,
                 registry: &registry,
-                buffer: &buffer,
-                warmer: Some(&warmer),
-                hotspot: Some(&hotspot),
                 cfr: &cfr,
                 m2_repo: &m2_repo,
             };
             let result = find_class(&deps, &class_name, version)?;
             write_find_output(&result, effective_format, output.as_deref())?;
-            warmer.shutdown_and_drain()?;
-            buffer.shutdown_and_flush()?;
         }
     }
 
@@ -264,11 +261,8 @@ struct IndexResult {
 }
 
 struct FindDeps<'a> {
-    cache: &'a PersistentCache,
-    registry: &'a ClassRegistry,
-    buffer: &'a WriteBuffer,
-    warmer: Option<&'a Warmer>,
-    hotspot: Option<&'a HotspotTracker>,
+    cache: &'a ReadOnlyCache,
+    registry: &'a ReadOnlyClassRegistry,
     cfr: &'a Cfr,
     m2_repo: &'a Path,
 }
@@ -342,18 +336,6 @@ fn find_class(
                 used_scan_root = m2_repo.to_path_buf();
             }
 
-            for jar_path in matched.iter() {
-                let jar_key = jar_path.to_string_lossy().to_string();
-                if deps.registry.is_cataloged(&jar_key).unwrap_or(false) {
-                    continue;
-                }
-                if let Ok(classes) = catalog::catalog(jar_path) {
-                    let _ = deps
-                        .registry
-                        .update_registry_and_mark_cataloged(&jar_key, &classes);
-                }
-            }
-
             (
                 class_name.to_string(),
                 matched,
@@ -382,7 +364,10 @@ fn find_class(
                     .then_with(|| a_name.cmp(b_name))
             })
             .with_context(|| {
-                format!("未找到类 {class_name}（扫描目录: {}）", scan_root.display())
+                format!(
+                    "Class {class_name} not found (scan dir: {})",
+                    scan_root.display()
+                )
             })?;
 
         (best_fqn, best_jars, scan_root, "scan".to_string())
@@ -398,7 +383,7 @@ fn find_class(
 
     if matched.is_empty() {
         anyhow::bail!(
-            "未找到类 {resolved_class_name}（扫描目录: {}）",
+            "Class {resolved_class_name} not found (scan dir: {})",
             scan_root.display()
         );
     }
@@ -408,10 +393,6 @@ fn find_class(
     for jar_path in matched.iter() {
         let jar_key = jar_path.to_string_lossy().to_string();
         let cache_key = format!("{resolved_class_name}::{jar_key}");
-        let warmup_request = deps
-            .hotspot
-            .and_then(|h| h.record_access(&jar_key).ok())
-            .flatten();
 
         if let Some(content) = deps.cache.get_class_source(&cache_key)? {
             versions.push(FindVersion {
@@ -423,16 +404,6 @@ fn find_class(
                 source: "cache".to_string(),
                 structure: None,
             });
-            if let (Some(warmer), Some(req)) = (deps.warmer, warmup_request) {
-                let mut exclude_fqns = HashSet::new();
-                exclude_fqns.insert(resolved_class_name.clone());
-                let _ = warmer.submit(WarmupTask {
-                    jar_path: jar_path.clone(),
-                    priority: req.priority,
-                    mode: req.mode,
-                    exclude_fqns,
-                });
-            }
             continue;
         }
 
@@ -444,21 +415,6 @@ fn find_class(
             .map(|c| c.content.clone())
             .unwrap_or(decompiled);
         let content_hash = hash_content(&content);
-
-        let _ = deps.buffer.enqueue(PendingWrite {
-            key: cache_key,
-            source: content.clone(),
-        });
-        if let (Some(warmer), Some(req)) = (deps.warmer, warmup_request) {
-            let mut exclude_fqns = HashSet::new();
-            exclude_fqns.insert(resolved_class_name.clone());
-            let _ = warmer.submit(WarmupTask {
-                jar_path: jar_path.clone(),
-                priority: req.priority,
-                mode: req.mode,
-                exclude_fqns,
-            });
-        }
         versions.push(FindVersion {
             version: extract_version_from_maven_path(jar_path),
             jar_path: jar_key,
@@ -559,7 +515,7 @@ fn warmup_targets(deps: &WarmupDeps<'_>, params: WarmupParams<'_>) -> Result<War
     } else if let Some(jar_path) = params.jar_path {
         vec![jar_path.to_path_buf()]
     } else {
-        anyhow::bail!("warmup 需要指定 jar_path，或使用 --hot / --group");
+        anyhow::bail!("warmup requires jar_path, or use --hot / --group");
     };
 
     if let Some(limit) = params.limit {
@@ -711,7 +667,7 @@ fn choose_default_version(versions: &[FindVersion]) -> Result<&FindVersion> {
         .iter()
         .rfind(|v| v.version.is_some())
         .or_else(|| versions.first())
-        .context("没有可用的反编译结果")
+        .context("No available decompiled result")
 }
 
 #[cfg(test)]
@@ -725,5 +681,75 @@ mod tests {
             normalize_class_name(raw),
             "org.springframework.stereotype.Component"
         );
+    }
+
+    #[test]
+    fn rewrite_args_for_implicit_find_inserts_find_after_global_flags() {
+        let args = vec![
+            "class-finder".to_string(),
+            "--db".to_string(),
+            "/tmp/cf.redb".to_string(),
+            "org.example.Demo".to_string(),
+        ];
+        let rewritten = rewrite_args_for_implicit_find(args);
+        assert_eq!(rewritten[3], "find");
+        assert_eq!(rewritten[4], "org.example.Demo");
+    }
+
+    #[test]
+    fn rewrite_args_for_implicit_find_keeps_explicit_subcommand() {
+        let args = vec![
+            "class-finder".to_string(),
+            "--db=/tmp/cf.redb".to_string(),
+            "stats".to_string(),
+        ];
+        let rewritten = rewrite_args_for_implicit_find(args);
+        assert_eq!(
+            rewritten,
+            vec!["class-finder", "--db=/tmp/cf.redb", "stats"]
+        );
+    }
+
+    #[test]
+    fn choose_default_version_prefers_latest_entry_with_version() {
+        let versions = vec![
+            FindVersion {
+                version: None,
+                jar_path: "a.jar".to_string(),
+                content_hash: "h1".to_string(),
+                content: "A".to_string(),
+                cache_hit: true,
+                source: "cache".to_string(),
+                structure: None,
+            },
+            FindVersion {
+                version: Some("1.0.0".to_string()),
+                jar_path: "b.jar".to_string(),
+                content_hash: "h2".to_string(),
+                content: "B".to_string(),
+                cache_hit: false,
+                source: "scan".to_string(),
+                structure: None,
+            },
+            FindVersion {
+                version: Some("1.1.0".to_string()),
+                jar_path: "c.jar".to_string(),
+                content_hash: "h3".to_string(),
+                content: "C".to_string(),
+                cache_hit: false,
+                source: "registry".to_string(),
+                structure: None,
+            },
+        ];
+
+        let picked = choose_default_version(&versions).unwrap();
+        assert_eq!(picked.version.as_deref(), Some("1.1.0"));
+        assert_eq!(picked.jar_path, "c.jar");
+    }
+
+    #[test]
+    fn choose_default_version_fails_when_empty() {
+        let err = choose_default_version(&[]).unwrap_err().to_string();
+        assert!(err.contains("No available decompiled result"));
     }
 }

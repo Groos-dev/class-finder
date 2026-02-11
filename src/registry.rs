@@ -1,34 +1,41 @@
 use anyhow::{Context, Result};
-use redb::{Database, ReadableTable};
+use heed::types::Str;
+use heed::{Database, Env};
 use std::sync::Arc;
 
-use crate::cache::{ARTIFACT_MANIFEST_TABLE, CLASS_REGISTRY_TABLE};
+use crate::cache::{ARTIFACT_MANIFEST_DB, CLASS_REGISTRY_DB};
+
+type StrDb = Database<Str, Str>;
 
 #[derive(Clone)]
 pub struct ClassRegistry {
-    db: Arc<Database>,
+    db: Arc<Env>,
+}
+
+#[derive(Clone)]
+pub struct ReadOnlyClassRegistry {
+    db: Arc<Env>,
 }
 
 impl ClassRegistry {
-    pub fn new(db: Arc<Database>) -> Self {
+    pub fn new(db: Arc<Env>) -> Self {
         Self { db }
     }
 
     pub fn get_artifacts(&self, fqn: &str) -> Result<Vec<String>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(CLASS_REGISTRY_TABLE)?;
-        let Some(value) = table.get(fqn)? else {
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, CLASS_REGISTRY_DB)?;
+        let Some(value) = table.get(&rtxn, fqn)? else {
             return Ok(Vec::new());
         };
-        let raw = value.value();
-        serde_json::from_str(raw)
+        serde_json::from_str(value)
             .with_context(|| format!("Failed to parse artifact list for class: {}", fqn))
     }
 
     pub fn is_cataloged(&self, jar_key: &str) -> Result<bool> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-        Ok(table.get(jar_key)?.is_some())
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, ARTIFACT_MANIFEST_DB)?;
+        Ok(table.get(&rtxn, jar_key)?.is_some())
     }
 
     pub fn update_registry_and_mark_cataloged(
@@ -36,45 +43,79 @@ impl ClassRegistry {
         jar_key: &str,
         classes: &[String],
     ) -> Result<usize> {
-        let txn = self.db.begin_write()?;
+        let mut wtxn = self.db.write_txn()?;
         let updated = {
-            let mut registry = txn.open_table(CLASS_REGISTRY_TABLE)?;
+            let registry = self
+                .db
+                .create_database::<Str, Str>(&mut wtxn, Some(CLASS_REGISTRY_DB))?;
             let mut updated = 0usize;
 
             for class in classes {
                 let mut paths: Vec<String> = registry
-                    .get(class.as_str())?
-                    .and_then(|v| serde_json::from_str::<Vec<String>>(v.value()).ok())
+                    .get(&wtxn, class.as_str())?
+                    .and_then(|v| serde_json::from_str::<Vec<String>>(v).ok())
                     .unwrap_or_default();
 
                 if !paths.iter().any(|p| p == jar_key) {
                     paths.push(jar_key.to_string());
                     let json = serde_json::to_string(&paths)?;
-                    registry.insert(class.as_str(), json.as_str())?;
+                    registry.put(&mut wtxn, class.as_str(), json.as_str())?;
                     updated += 1;
                 }
             }
 
-            let mut manifest = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-            manifest.insert(jar_key, "1")?;
+            let manifest = self
+                .db
+                .create_database::<Str, Str>(&mut wtxn, Some(ARTIFACT_MANIFEST_DB))?;
+            manifest.put(&mut wtxn, jar_key, "1")?;
 
             updated
         };
-        txn.commit()?;
+        wtxn.commit()?;
         Ok(updated)
     }
 
     pub fn indexed_classes(&self) -> Result<u64> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(CLASS_REGISTRY_TABLE)?;
-        Ok(table.iter()?.count() as u64)
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, CLASS_REGISTRY_DB)?;
+        table_len(&table, &rtxn)
     }
 
     pub fn cataloged_jars(&self) -> Result<u64> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-        Ok(table.iter()?.count() as u64)
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, ARTIFACT_MANIFEST_DB)?;
+        table_len(&table, &rtxn)
     }
+}
+
+impl ReadOnlyClassRegistry {
+    pub fn new(db: Arc<Env>) -> Self {
+        Self { db }
+    }
+
+    pub fn get_artifacts(&self, fqn: &str) -> Result<Vec<String>> {
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, CLASS_REGISTRY_DB)?;
+        let Some(value) = table.get(&rtxn, fqn)? else {
+            return Ok(Vec::new());
+        };
+        serde_json::from_str(value)
+            .with_context(|| format!("Failed to parse artifact list for class: {}", fqn))
+    }
+}
+
+fn open_named_db(env: &Env, rtxn: &heed::RoTxn<'_>, name: &str) -> Result<StrDb> {
+    env.open_database::<Str, Str>(rtxn, Some(name))?
+        .with_context(|| format!("Database not found: {name}"))
+}
+
+fn table_len(db: &StrDb, rtxn: &heed::RoTxn<'_>) -> Result<u64> {
+    let mut count = 0u64;
+    for item in db.iter(rtxn)? {
+        let _ = item?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 #[cfg(test)]

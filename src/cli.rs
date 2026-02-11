@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Parser)]
 #[command(name = "class-finder")]
-#[command(about = "在本地 Maven 仓库中查找 Java 类并返回反编译源码")]
+#[command(about = "Find Java classes in local Maven repository and return decompiled source")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,

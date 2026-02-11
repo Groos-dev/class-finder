@@ -1,54 +1,77 @@
 //! Persistent cache for decompiled Java sources and metadata.
 //!
-//! Uses redb for efficient key-value storage with ACID guarantees.
+//! Uses LMDB (via heed) for efficient key-value storage with ACID guarantees.
 //! Stores decompiled class sources, JAR load status, class registry,
 //! artifact manifests, hotspot tracking, and modification times.
 
 use anyhow::{Context, Result};
-use redb::{Database, ReadableTable, TableDefinition};
+use heed::types::Str;
+use heed::{Database, Env, EnvFlags, EnvOpenOptions, RoTxn};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-pub const CLASSES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("classes");
-pub const JARS_TABLE: TableDefinition<&str, &str> = TableDefinition::new("jars");
-pub const CLASS_REGISTRY_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("class_registry");
-pub const ARTIFACT_MANIFEST_TABLE: TableDefinition<&str, &str> =
-    TableDefinition::new("artifact_manifest");
-pub const JAR_HOTSPOT_TABLE: TableDefinition<&str, &str> = TableDefinition::new("jar_hotspot");
-pub const JAR_MTIME_TABLE: TableDefinition<&str, &str> = TableDefinition::new("jar_mtime");
+pub const CLASSES_DB: &str = "classes";
+pub const JARS_DB: &str = "jars";
+pub const CLASS_REGISTRY_DB: &str = "class_registry";
+pub const ARTIFACT_MANIFEST_DB: &str = "artifact_manifest";
+pub const JAR_HOTSPOT_DB: &str = "jar_hotspot";
+pub const JAR_MTIME_DB: &str = "jar_mtime";
+
+const DEFAULT_MAP_SIZE: usize = 1024 * 1024 * 1024;
+const DEFAULT_MAX_DBS: u32 = 32;
+
+type StrDb = Database<Str, Str>;
 
 #[derive(Debug)]
 pub struct PersistentCache {
-    db: Arc<Database>,
+    env: Arc<Env>,
     db_path: PathBuf,
+    classes: StrDb,
+    jars: StrDb,
+    class_registry: StrDb,
+    artifact_manifest: StrDb,
+    jar_hotspot: StrDb,
+}
+
+#[derive(Debug)]
+pub struct ReadOnlyCache {
+    inner: PersistentCache,
 }
 
 impl PersistentCache {
     pub fn open(db_path: PathBuf) -> Result<Self> {
         if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("无法创建缓存目录: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create cache directory: {}", parent.display())
+            })?;
         }
 
-        let db = Database::create(&db_path)
-            .with_context(|| format!("无法创建/打开 redb: {}", db_path.display()))?;
-        let db = Arc::new(db);
-        {
-            let txn = db.begin_write()?;
-            let _ = txn.open_table(CLASSES_TABLE)?;
-            let _ = txn.open_table(JARS_TABLE)?;
-            let _ = txn.open_table(CLASS_REGISTRY_TABLE)?;
-            let _ = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-            let _ = txn.open_table(JAR_HOTSPOT_TABLE)?;
-            let _ = txn.open_table(JAR_MTIME_TABLE)?;
-            txn.commit()?;
-        }
-        Ok(Self { db, db_path })
+        let env = open_env(&db_path)?;
+        let env = Arc::new(env);
+
+        let mut wtxn = env.write_txn()?;
+        let classes = env.create_database::<Str, Str>(&mut wtxn, Some(CLASSES_DB))?;
+        let jars = env.create_database::<Str, Str>(&mut wtxn, Some(JARS_DB))?;
+        let class_registry = env.create_database::<Str, Str>(&mut wtxn, Some(CLASS_REGISTRY_DB))?;
+        let artifact_manifest =
+            env.create_database::<Str, Str>(&mut wtxn, Some(ARTIFACT_MANIFEST_DB))?;
+        let jar_hotspot = env.create_database::<Str, Str>(&mut wtxn, Some(JAR_HOTSPOT_DB))?;
+        let _jar_mtime = env.create_database::<Str, Str>(&mut wtxn, Some(JAR_MTIME_DB))?;
+        wtxn.commit()?;
+
+        Ok(Self {
+            env,
+            db_path,
+            classes,
+            jars,
+            class_registry,
+            artifact_manifest,
+            jar_hotspot,
+        })
     }
 
-    pub fn db(&self) -> Arc<Database> {
-        Arc::clone(&self.db)
+    pub fn db(&self) -> Arc<Env> {
+        Arc::clone(&self.env)
     }
 
     pub fn pending_gauge_path(&self) -> PathBuf {
@@ -58,9 +81,8 @@ impl PersistentCache {
     }
 
     pub fn get_class_source(&self, key: &str) -> Result<Option<String>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(CLASSES_TABLE)?;
-        Ok(table.get(key)?.map(|v| v.value().to_string()))
+        let rtxn = self.env.read_txn()?;
+        Ok(self.classes.get(&rtxn, key)?.map(|v| v.to_string()))
     }
 
     pub fn put_class_sources(&self, entries: &[(String, String)]) -> Result<usize> {
@@ -68,58 +90,46 @@ impl PersistentCache {
             return Ok(0);
         }
 
-        let txn = self.db.begin_write()?;
-        {
-            let mut table = txn.open_table(CLASSES_TABLE)?;
-            for (k, v) in entries {
-                table.insert(k.as_str(), v.as_str())?;
-            }
+        let mut wtxn = self.env.write_txn()?;
+        for (k, v) in entries {
+            self.classes.put(&mut wtxn, k.as_str(), v.as_str())?;
         }
-        txn.commit()?;
+        wtxn.commit()?;
         Ok(entries.len())
     }
 
     pub fn is_jar_loaded(&self, jar_key: &str) -> Result<bool> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(JARS_TABLE)?;
-        Ok(table.get(jar_key)?.is_some())
+        let rtxn = self.env.read_txn()?;
+        Ok(self.jars.get(&rtxn, jar_key)?.is_some())
     }
 
     pub fn mark_jar_loaded(&self, jar_key: &str) -> Result<()> {
-        let txn = self.db.begin_write()?;
-        {
-            let mut table = txn.open_table(JARS_TABLE)?;
-            table.insert(jar_key, "1")?;
-        }
-        txn.commit()?;
+        let mut wtxn = self.env.write_txn()?;
+        self.jars.put(&mut wtxn, jar_key, "1")?;
+        wtxn.commit()?;
         Ok(())
     }
 
     pub fn stats(&self) -> Result<CacheStats> {
-        let txn = self.db.begin_read()?;
-        let source_cache = txn.open_table(CLASSES_TABLE)?;
-        let loaded_jars = txn.open_table(JARS_TABLE)?;
-        let class_registry = txn.open_table(CLASS_REGISTRY_TABLE)?;
-        let artifact_manifest = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-        let jar_hotspot = txn.open_table(JAR_HOTSPOT_TABLE)?;
+        let rtxn = self.env.read_txn()?;
 
-        let source_entries = source_cache.iter()?.count() as u64;
-        let loaded_jars = loaded_jars.iter()?.count() as u64;
-        let indexed_classes = class_registry.iter()?.count() as u64;
-        let cataloged_jars = artifact_manifest.iter()?.count() as u64;
-        let hotspot_jars = jar_hotspot.iter()?.count() as u64;
+        let source_entries = table_len(&self.classes, &rtxn)?;
+        let loaded_jars = table_len(&self.jars, &rtxn)?;
+        let indexed_classes = table_len(&self.class_registry, &rtxn)?;
+        let cataloged_jars = table_len(&self.artifact_manifest, &rtxn)?;
+        let hotspot_jars = table_len(&self.jar_hotspot, &rtxn)?;
         let mut warmed_jars = 0u64;
         let mut hotspot_top = Vec::new();
-        for item in jar_hotspot.iter()? {
+        for item in self.jar_hotspot.iter(&rtxn)? {
             let (k, v) = item?;
-            let Ok(h) = serde_json::from_str::<JarHotspotRow>(v.value()) else {
+            let Ok(h) = serde_json::from_str::<JarHotspotRow>(v) else {
                 continue;
             };
             if h.warmed {
                 warmed_jars += 1;
             }
             hotspot_top.push(HotspotTopEntry {
-                jar_path: k.value().to_string(),
+                jar_path: k.to_string(),
                 access_count: h.access_count,
                 last_access: h.last_access,
                 warmed: h.warmed,
@@ -150,6 +160,48 @@ impl PersistentCache {
             hotspot_top,
         })
     }
+}
+
+impl ReadOnlyCache {
+    pub fn open(snapshot_db_path: PathBuf) -> Result<Self> {
+        let inner = PersistentCache::open(snapshot_db_path)?;
+        Ok(Self { inner })
+    }
+
+    pub fn db(&self) -> Arc<Env> {
+        self.inner.db()
+    }
+
+    pub fn get_class_source(&self, key: &str) -> Result<Option<String>> {
+        self.inner.get_class_source(key)
+    }
+
+    pub fn stats(&self) -> Result<CacheStats> {
+        self.inner.stats()
+    }
+}
+
+fn open_env(db_path: &PathBuf) -> Result<Env> {
+    let mut options = EnvOpenOptions::new();
+    options.map_size(DEFAULT_MAP_SIZE);
+    options.max_dbs(DEFAULT_MAX_DBS);
+    // SAFETY: We do not use NO_LOCK and keep default LMDB locking guarantees.
+    // NO_SUB_DIR preserves current single-path CLI behavior for --db.
+    unsafe {
+        options.flags(EnvFlags::NO_SUB_DIR);
+        options
+            .open(db_path)
+            .with_context(|| format!("Failed to create/open db env: {}", db_path.display()))
+    }
+}
+
+fn table_len(db: &StrDb, rtxn: &RoTxn<'_>) -> Result<u64> {
+    let mut count = 0u64;
+    for item in db.iter(rtxn)? {
+        let _ = item?;
+        count += 1;
+    }
+    Ok(count)
 }
 
 #[derive(Debug, serde::Deserialize)]

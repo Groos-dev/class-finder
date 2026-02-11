@@ -1,11 +1,14 @@
 use anyhow::Result;
-use redb::ReadableTable;
+use heed::types::Str;
+use heed::{Database, Env};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::cache::JAR_HOTSPOT_TABLE;
+use crate::cache::JAR_HOTSPOT_DB;
 use crate::warmup::{WarmupMode, WarmupPriority};
+
+type StrDb = Database<Str, Str>;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JarHotspot {
@@ -23,12 +26,12 @@ pub struct WarmupRequest {
 
 #[derive(Debug, Clone)]
 pub struct HotspotTracker {
-    db: Arc<redb::Database>,
+    db: Arc<Env>,
     warmup_threshold: u32,
 }
 
 impl HotspotTracker {
-    pub fn new(db: Arc<redb::Database>, warmup_threshold: u32) -> Self {
+    pub fn new(db: Arc<Env>, warmup_threshold: u32) -> Self {
         Self {
             db,
             warmup_threshold: warmup_threshold.max(1),
@@ -73,21 +76,21 @@ impl HotspotTracker {
     }
 
     pub fn get_hotspot(&self, jar_key: &str) -> Result<Option<JarHotspot>> {
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(JAR_HOTSPOT_TABLE)?;
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, JAR_HOTSPOT_DB)?;
         Ok(table
-            .get(jar_key)?
-            .and_then(|v| serde_json::from_str::<JarHotspot>(v.value()).ok()))
+            .get(&rtxn, jar_key)?
+            .and_then(|v| serde_json::from_str::<JarHotspot>(v).ok()))
     }
 
     pub fn put_hotspot(&self, jar_key: &str, value: &JarHotspot) -> Result<()> {
         let payload = serde_json::to_string(value)?;
-        let txn = self.db.begin_write()?;
-        {
-            let mut table = txn.open_table(JAR_HOTSPOT_TABLE)?;
-            table.insert(jar_key, payload.as_str())?;
-        }
-        txn.commit()?;
+        let mut wtxn = self.db.write_txn()?;
+        let table = self
+            .db
+            .create_database::<Str, Str>(&mut wtxn, Some(JAR_HOTSPOT_DB))?;
+        table.put(&mut wtxn, jar_key, payload.as_str())?;
+        wtxn.commit()?;
         Ok(())
     }
 
@@ -96,13 +99,13 @@ impl HotspotTracker {
             return Ok(Vec::new());
         }
 
-        let txn = self.db.begin_read()?;
-        let table = txn.open_table(JAR_HOTSPOT_TABLE)?;
+        let rtxn = self.db.read_txn()?;
+        let table = open_named_db(&self.db, &rtxn, JAR_HOTSPOT_DB)?;
         let mut entries: Vec<(u32, u64, String)> = Vec::new();
-        for item in table.iter()? {
+        for item in table.iter(&rtxn)? {
             let (k, v) = item?;
-            let jar_key = k.value().to_string();
-            let Ok(h) = serde_json::from_str::<JarHotspot>(v.value()) else {
+            let jar_key = k.to_string();
+            let Ok(h) = serde_json::from_str::<JarHotspot>(v) else {
                 continue;
             };
             if h.warmed || h.access_count == 0 {
@@ -118,6 +121,11 @@ impl HotspotTracker {
         });
         Ok(entries.into_iter().take(top).map(|e| e.2).collect())
     }
+}
+
+fn open_named_db(env: &Env, rtxn: &heed::RoTxn<'_>, name: &str) -> Result<StrDb> {
+    env.open_database::<Str, Str>(rtxn, Some(name))?
+        .ok_or_else(|| anyhow::anyhow!("Database not found: {name}"))
 }
 
 #[cfg(test)]

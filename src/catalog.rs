@@ -1,22 +1,19 @@
 use anyhow::{Context, Result};
 use memmap2::Mmap;
-use redb::Database;
 use std::fs::File;
 use std::io::Cursor;
 use std::path::Path;
 use zip::ZipArchive;
 
-use crate::cache::ARTIFACT_MANIFEST_TABLE;
-
 pub fn catalog(artifact_path: &Path) -> Result<Vec<String>> {
     let file = File::open(artifact_path)
-        .with_context(|| format!("无法打开 jar: {}", artifact_path.display()))?;
+        .with_context(|| format!("Failed to open jar: {}", artifact_path.display()))?;
     // SAFETY: The file is opened read-only and remains valid for the lifetime of the mmap.
     // The mmap is dropped before the file, ensuring memory safety.
     let mmap = unsafe { Mmap::map(&file) }
-        .with_context(|| format!("mmap jar 失败: {}", artifact_path.display()))?;
+        .with_context(|| format!("mmap jar failed: {}", artifact_path.display()))?;
     let mut archive = ZipArchive::new(Cursor::new(&mmap[..]))
-        .with_context(|| format!("无法解析 zip(jar): {}", artifact_path.display()))?;
+        .with_context(|| format!("Failed to parse zip(jar): {}", artifact_path.display()))?;
 
     let mut classes = Vec::new();
     for i in 0..archive.len() {
@@ -32,22 +29,6 @@ pub fn catalog(artifact_path: &Path) -> Result<Vec<String>> {
         classes.push(class_name);
     }
     Ok(classes)
-}
-
-pub fn is_cataloged(db: &Database, jar_key: &str) -> Result<bool> {
-    let txn = db.begin_read()?;
-    let table = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-    Ok(table.get(jar_key)?.is_some())
-}
-
-pub fn mark_cataloged(db: &Database, jar_key: &str) -> Result<()> {
-    let txn = db.begin_write()?;
-    {
-        let mut table = txn.open_table(ARTIFACT_MANIFEST_TABLE)?;
-        table.insert(jar_key, "1")?;
-    }
-    txn.commit()?;
-    Ok(())
 }
 
 #[cfg(test)]

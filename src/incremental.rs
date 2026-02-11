@@ -1,11 +1,12 @@
 use anyhow::Result;
-use redb::ReadableTable;
+use heed::Env;
+use heed::types::Str;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::cache::JAR_MTIME_TABLE;
+use crate::cache::JAR_MTIME_DB;
 use crate::catalog;
 use crate::registry::ClassRegistry;
 use crate::scan::scan_jars;
@@ -34,46 +35,46 @@ pub struct IncrementalIndexResult {
 
 #[derive(Clone)]
 pub struct IncrementalIndexer {
-    db: Arc<redb::Database>,
+    db: Arc<Env>,
     root: PathBuf,
 }
 
 impl IncrementalIndexer {
-    pub fn new(db: Arc<redb::Database>, root: PathBuf) -> Self {
+    pub fn new(db: Arc<Env>, root: PathBuf) -> Self {
         Self { db, root }
     }
 
     pub fn scan_changes(&self) -> Result<(usize, Vec<PathBuf>)> {
         let jars = scan_jars(&self.root)?;
-        let txn = self.db.begin_write()?;
+        let mut wtxn = self.db.write_txn()?;
+        let table = self
+            .db
+            .create_database::<Str, Str>(&mut wtxn, Some(JAR_MTIME_DB))?;
         let mut changed = Vec::new();
-        {
-            let mut table = txn.open_table(JAR_MTIME_TABLE)?;
-            for jar_path in jars.iter() {
-                let jar_key = jar_path.to_string_lossy().to_string();
-                let mtime = jar_path
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(SystemTime::UNIX_EPOCH);
-                let nanos = mtime
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_nanos();
-                let nanos_u64 = u64::try_from(nanos).unwrap_or(u64::MAX);
+        for jar_path in &jars {
+            let jar_key = jar_path.to_string_lossy().to_string();
+            let mtime = jar_path
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(SystemTime::UNIX_EPOCH);
+            let nanos = mtime
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos();
+            let nanos_u64 = u64::try_from(nanos).unwrap_or(u64::MAX);
 
-                let old = table
-                    .get(jar_key.as_str())?
-                    .and_then(|v| v.value().parse::<u64>().ok())
-                    .unwrap_or(0);
-                if old < nanos_u64 {
-                    changed.push(jar_path.clone());
-                }
-
-                let value = nanos_u64.to_string();
-                table.insert(jar_key.as_str(), value.as_str())?;
+            let old = table
+                .get(&wtxn, jar_key.as_str())?
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(0);
+            if old < nanos_u64 {
+                changed.push(jar_path.clone());
             }
+
+            let value = nanos_u64.to_string();
+            table.put(&mut wtxn, jar_key.as_str(), value.as_str())?;
         }
-        txn.commit()?;
+        wtxn.commit()?;
         Ok((jars.len(), changed))
     }
 

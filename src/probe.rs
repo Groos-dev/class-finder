@@ -6,26 +6,26 @@ use std::path::Path;
 use zip::ZipArchive;
 
 pub fn jar_contains_class(jar_path: &Path, class_path: &str) -> Result<bool> {
-    let file =
-        File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
+    let file = File::open(jar_path)
+        .with_context(|| format!("Failed to open jar: {}", jar_path.display()))?;
     // SAFETY: The file is opened read-only and remains valid for the lifetime of the mmap.
     let mmap = unsafe {
-        Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))?
+        Mmap::map(&file).with_context(|| format!("mmap failed: {}", jar_path.display()))?
     };
     let mut archive = ZipArchive::new(Cursor::new(&mmap[..]))
-        .with_context(|| format!("无法读取 zip 结构: {}", jar_path.display()))?;
+        .with_context(|| format!("Failed to read zip structure: {}", jar_path.display()))?;
     Ok(archive.by_name(class_path).is_ok())
 }
 
 pub fn find_class_fqns_in_jar(jar_path: &Path, simple_class_name: &str) -> Result<Vec<String>> {
-    let file =
-        File::open(jar_path).with_context(|| format!("无法打开 jar: {}", jar_path.display()))?;
+    let file = File::open(jar_path)
+        .with_context(|| format!("Failed to open jar: {}", jar_path.display()))?;
     // SAFETY: The file is opened read-only and remains valid for the lifetime of the mmap.
     let mmap = unsafe {
-        Mmap::map(&file).with_context(|| format!("mmap 失败: {}", jar_path.display()))?
+        Mmap::map(&file).with_context(|| format!("mmap failed: {}", jar_path.display()))?
     };
     let mut archive = ZipArchive::new(Cursor::new(&mmap[..]))
-        .with_context(|| format!("无法读取 zip 结构: {}", jar_path.display()))?;
+        .with_context(|| format!("Failed to read zip structure: {}", jar_path.display()))?;
 
     let wanted_suffix = format!("/{simple_class_name}.class");
     let mut results = Vec::new();

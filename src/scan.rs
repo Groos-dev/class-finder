@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 pub fn default_m2_repository() -> Result<PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("无法获取 home 目录"))?;
+    let home =
+        dirs::home_dir().ok_or_else(|| anyhow::anyhow!("Failed to resolve home directory"))?;
     Ok(home.join(".m2").join("repository"))
 }
 
