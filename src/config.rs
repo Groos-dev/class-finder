@@ -20,25 +20,6 @@ pub fn resolve_db_path(cli: &Cli) -> Result<PathBuf> {
     Ok(class_finder_home()?.join("db.lmdb"))
 }
 
-pub fn resolve_snapshot_db_path(cli: &Cli) -> Result<PathBuf> {
-    let db_path = resolve_db_path(cli)?;
-    Ok(snapshot_db_path(&db_path))
-}
-
-pub fn snapshot_db_path(db_path: &Path) -> PathBuf {
-    let stem = db_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .filter(|s| !s.is_empty())
-        .unwrap_or("db");
-    let file_name = format!("{stem}.snapshot.lmdb");
-
-    match db_path.parent() {
-        Some(parent) => parent.join(file_name),
-        None => PathBuf::from(file_name),
-    }
-}
-
 pub fn resolve_cfr_path(cli: &Cli) -> Result<PathBuf> {
     if let Some(p) = cli.cfr.clone() {
         return Ok(p);
@@ -61,44 +42,6 @@ pub fn clear_db(db_path: &Path) -> Result<()> {
     remove_file_if_exists(db_path, "db")?;
     remove_file_if_exists(&lmdb_lock_path(db_path), "db lock")?;
 
-    let snapshot = snapshot_db_path(db_path);
-    remove_file_if_exists(&snapshot, "snapshot db")?;
-    remove_file_if_exists(&lmdb_lock_path(&snapshot), "snapshot db lock")?;
-
-    Ok(())
-}
-
-pub fn publish_snapshot(main_db_path: &Path, snapshot_db_path: &Path) -> Result<()> {
-    if !main_db_path.exists() {
-        return Ok(());
-    }
-
-    if let Some(parent) = snapshot_db_path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
-            format!("Failed to create snapshot directory: {}", parent.display())
-        })?;
-    }
-
-    let mut tmp_os = snapshot_db_path.as_os_str().to_os_string();
-    tmp_os.push(".tmp");
-    let tmp = PathBuf::from(tmp_os);
-    std::fs::copy(main_db_path, &tmp).with_context(|| {
-        format!(
-            "Failed to copy snapshot file: {} -> {}",
-            main_db_path.display(),
-            tmp.display()
-        )
-    })?;
-
-    if snapshot_db_path.exists() {
-        let _ = std::fs::remove_file(snapshot_db_path);
-    }
-    std::fs::rename(&tmp, snapshot_db_path).with_context(|| {
-        format!(
-            "Failed to atomically replace snapshot file: {}",
-            snapshot_db_path.display()
-        )
-    })?;
     Ok(())
 }
 

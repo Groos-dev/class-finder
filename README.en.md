@@ -251,13 +251,9 @@ Output includes:
 class-finder clear
 ```
 
-### Concurrent Reads and Snapshots
+### Concurrent Reads
 
-- The storage backend is now LMDB (via heed).
-- Write operations such as `index`, `load`, and `warmup` update the main DB (default pathname `db.lmdb`) and publish a read-only snapshot (default pathname `db.snapshot.lmdb`) after completion.
-- `find` and `stats` read from the snapshot by default, so they do not contend for the main DB writer lock.
-- Snapshot reads are eventually consistent: very recent writes may not be visible until the next snapshot publish.
-- If you set a custom main DB path via `--db`, the snapshot path is derived from it automatically.
+- The storage backend is LMDB (via heed), and `index`, `load`, `warmup`, `find`, and `stats` all access the same main DB directly (default pathname `db.lmdb`).
 
 The first query will be slower (needs to scan JARs and decompile), but subsequent queries will be significantly faster when hitting the local cache. Use `index` and `warmup` commands to build indexes and caches in advance for even faster queries.
 

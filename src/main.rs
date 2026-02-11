@@ -5,10 +5,7 @@ use class_finder::cache::{PersistentCache, ReadOnlyCache};
 use class_finder::catalog;
 use class_finder::cfr::Cfr;
 use class_finder::cli::{Cli, Commands, OutputFormat};
-use class_finder::config::{
-    clear_db, publish_snapshot, resolve_cfr_path, resolve_db_path, resolve_m2_repo,
-    resolve_snapshot_db_path,
-};
+use class_finder::config::{clear_db, resolve_cfr_path, resolve_db_path, resolve_m2_repo};
 use class_finder::hotspot::HotspotTracker;
 use class_finder::parse::{hash_content, parse_decompiled_output};
 use class_finder::probe::{find_class_fqns_in_jar, jar_contains_class};
@@ -40,12 +37,10 @@ fn main() -> Result<()> {
                 let root = path.unwrap_or(resolve_m2_repo(&cli)?);
                 index_repo(&registry, root)?
             };
-            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
-            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Stats => {
-            let db_path = resolve_snapshot_db_path(&cli)?;
+            let db_path = resolve_db_path(&cli)?;
             let cache = ReadOnlyCache::open(db_path)?;
             let stats = cache.stats()?;
             println!("{}", serde_json::to_string_pretty(&stats)?);
@@ -70,8 +65,6 @@ fn main() -> Result<()> {
                 }
                 output
             };
-            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
-            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Warmup {
@@ -116,8 +109,6 @@ fn main() -> Result<()> {
                 }
                 output
             };
-            let snapshot_db_path = resolve_snapshot_db_path(&cli)?;
-            publish_snapshot(&db_path, &snapshot_db_path)?;
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
         Commands::Find {
@@ -128,7 +119,7 @@ fn main() -> Result<()> {
             output,
         } => {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
-            let db_path = resolve_snapshot_db_path(&cli)?;
+            let db_path = resolve_db_path(&cli)?;
             let cache = ReadOnlyCache::open(db_path)?;
             let registry = ReadOnlyClassRegistry::new(cache.db());
             let effective_format = if code_only {

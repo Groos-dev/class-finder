@@ -163,8 +163,8 @@ impl PersistentCache {
 }
 
 impl ReadOnlyCache {
-    pub fn open(snapshot_db_path: PathBuf) -> Result<Self> {
-        let inner = PersistentCache::open(snapshot_db_path)?;
+    pub fn open(db_path: PathBuf) -> Result<Self> {
+        let inner = PersistentCache::open(db_path)?;
         Ok(Self { inner })
     }
 
