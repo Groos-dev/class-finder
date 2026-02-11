@@ -151,7 +151,7 @@ if [ ! -f "$cfr_path" ]; then
   mv -f "$tmp/cfr.jar" "$cfr_path"
 fi
 
-claude_skill_dir="${HOME}/.claude/class-finder"
+claude_skill_dir="${HOME}/.claude/skills/find-class"
 mkdir -p "$claude_skill_dir"
 skill_ref="${SKILL_REF:-$version}"
 skill_url="https://raw.githubusercontent.com/${REPO}/${skill_ref}/skills/find-class/SKILL.md"

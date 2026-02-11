@@ -29,8 +29,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.co
   - Linux：`~/.local/share/class-finder/tools/cfr.jar`（或 `$XDG_DATA_HOME/class-finder/tools/cfr.jar`）
   - Windows：`%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
 - 安装 `find-class` Skill 到：
-  - macOS/Linux：`~/.claude/class-finder/SKILL.md`
-  - Windows：`%USERPROFILE%\\.claude\\class-finder\\SKILL.md`
+  - macOS/Linux：`~/.claude/skills/find-class/SKILL.md`
+  - Windows：`%USERPROFILE%\\.claude\\skills\\find-class\\SKILL.md`
 
 #### 指定版本与安装目录
 

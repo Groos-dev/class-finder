@@ -29,8 +29,8 @@ The installation script automatically:
   - Linux: `~/.local/share/class-finder/tools/cfr.jar` (or `$XDG_DATA_HOME/class-finder/tools/cfr.jar`)
   - Windows: `%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
 - Installs the `find-class` Skill to:
-  - macOS/Linux: `~/.claude/class-finder/SKILL.md`
-  - Windows: `%USERPROFILE%\\.claude\\class-finder\\SKILL.md`
+  - macOS/Linux: `~/.claude/skills/find-class/SKILL.md`
+  - Windows: `%USERPROFILE%\\.claude\\skills\\find-class\\SKILL.md`
 
 #### Specify Version and Install Directory
 

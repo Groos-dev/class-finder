@@ -84,7 +84,7 @@ if (-not (Test-Path $cfrPath)) {
   Invoke-WebRequest -Uri $CfrUrl -OutFile $cfrPath -UseBasicParsing
 }
 
-$skillDir = Join-Path $env:USERPROFILE ".claude\class-finder"
+$skillDir = Join-Path $env:USERPROFILE ".claude\skills\find-class"
 New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($SkillRef)) {
   $SkillRef = $Version
