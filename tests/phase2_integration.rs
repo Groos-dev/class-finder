@@ -23,6 +23,14 @@ fn write_file(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn fake_java_name() -> &'static str {
+    if cfg!(windows) { "java.cmd" } else { "java" }
+}
+
+fn path_separator() -> &'static str {
+    if cfg!(windows) { ";" } else { ":" }
+}
+
 fn write_jar(path: &std::path::Path, entries: &[(&str, &[u8])]) -> anyhow::Result<()> {
     use std::io::Write;
     use zip::write::FileOptions;
@@ -91,10 +99,104 @@ fn phase2_three_layer_flow_works() -> anyhow::Result<()> {
     )?;
 
     let fake_bin_dir = base.join("bin");
-    let fake_java = fake_bin_dir.join("java");
+    let fake_java = fake_bin_dir.join(fake_java_name());
     write_file(
         &fake_java,
-        r#"#!/bin/sh
+        if cfg!(windows) {
+            r#"@echo off
+setlocal EnableExtensions
+set "mode=jar"
+set "target="
+set "expect="
+
+:parse
+if "%~1"=="" goto parsed
+
+if /I "%expect%"=="jarfile" (
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%expect%"=="extraclasspath" (
+  set "mode=class"
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%~1"=="-jar" (
+  set "expect=jarfile"
+  shift
+  goto parse
+)
+
+if /I "%~1"=="--extraclasspath" (
+  set "expect=extraclasspath"
+  shift
+  goto parse
+)
+
+if "%~1:~0,1%"=="-" (
+  shift
+  goto parse
+)
+
+if not defined target set "target=%~1"
+shift
+goto parse
+
+:parsed
+if /I "%mode%"=="class" (
+  if /I "%target%"=="org.example.pkg.A" goto class_a
+  if /I "%target%"=="org.example.pkg.B" goto class_b
+  goto class_unknown
+)
+goto jar_all
+
+:class_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
+exit /b 0
+
+:class_b
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class B {
+echo }
+exit /b 0
+
+:class_unknown
+echo package org.example.pkg; public class Unknown {}
+exit /b 0
+
+:jar_all
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class B {
+echo }
+exit /b 0
+"#
+        } else {
+            r#"#!/bin/sh
 set -e
 if [ "$3" = "--extraclasspath" ]; then
   cls="$5"
@@ -143,17 +245,23 @@ public class B {
 }
 EOF
 fi
-"#,
+"#
+        },
     )?;
     make_executable(&fake_java)?;
 
     let bin = env!("CARGO_BIN_EXE_class-finder");
     let path_env = format!(
-        "{}:{}",
+        "{}{}{}",
         fake_bin_dir.to_string_lossy(),
+        path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let envs = [("PATH", path_env.as_str())];
+    let java_bin = fake_java.to_string_lossy().to_string();
+    let envs = [
+        ("PATH", path_env.as_str()),
+        ("CLASS_FINDER_JAVA", java_bin.as_str()),
+    ];
 
     let first = run_json(
         bin,
@@ -292,10 +400,79 @@ fn phase2_implicit_find_with_global_flags_works() -> anyhow::Result<()> {
     write_jar(&jar, &[("org/example/pkg/A.class", b"")])?;
 
     let fake_bin_dir = base.join("bin");
-    let fake_java = fake_bin_dir.join("java");
+    let fake_java = fake_bin_dir.join(fake_java_name());
     write_file(
         &fake_java,
-        r#"#!/bin/sh
+        if cfg!(windows) {
+            r#"@echo off
+setlocal EnableExtensions
+set "mode=jar"
+set "target="
+set "expect="
+
+:parse
+if "%~1"=="" goto parsed
+
+if /I "%expect%"=="jarfile" (
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%expect%"=="extraclasspath" (
+  set "mode=class"
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%~1"=="-jar" (
+  set "expect=jarfile"
+  shift
+  goto parse
+)
+
+if /I "%~1"=="--extraclasspath" (
+  set "expect=extraclasspath"
+  shift
+  goto parse
+)
+
+if "%~1:~0,1%"=="-" (
+  shift
+  goto parse
+)
+
+if not defined target set "target=%~1"
+shift
+goto parse
+
+:parsed
+if /I "%mode%"=="class" goto class_a
+goto jar_a
+
+:class_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
+exit /b 0
+
+:jar_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
+exit /b 0
+"#
+        } else {
+            r#"#!/bin/sh
 set -e
 if [ "$3" = "--extraclasspath" ]; then
   cat <<'EOF'
@@ -318,17 +495,23 @@ public class A {
 }
 EOF
 fi
-"#,
+"#
+        },
     )?;
     make_executable(&fake_java)?;
 
     let bin = env!("CARGO_BIN_EXE_class-finder");
     let path_env = format!(
-        "{}:{}",
+        "{}{}{}",
         fake_bin_dir.to_string_lossy(),
+        path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let envs = [("PATH", path_env.as_str())];
+    let java_bin = fake_java.to_string_lossy().to_string();
+    let envs = [
+        ("PATH", path_env.as_str()),
+        ("CLASS_FINDER_JAVA", java_bin.as_str()),
+    ];
 
     let result = run_json(
         bin,
