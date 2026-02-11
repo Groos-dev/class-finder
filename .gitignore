@@ -10,8 +10,8 @@ Cargo.lock
 /.claude/
 
 # Database files
-*.redb
-*.redb-lock
+*.lmdb
+*.lmdb-lock
 *.db
 *.db-shm
 *.db-wal

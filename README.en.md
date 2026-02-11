@@ -146,14 +146,14 @@ class-finder org.springframework.stereotype.Component --version 6.2.8 --code-onl
 ### 5) Common Global Options
 
 - `--m2 <PATH>`: Maven repository root path (default: `~/.m2/repository`)
-- `--db <FILE>`: cache DB file path (default: `class-finder/db.redb` under local data directory; filename kept for backward compatibility)
+- `--db <FILE>`: cache DB file path (default: `class-finder/db.lmdb` under local data directory)
 - `--cfr <FILE>`: local `cfr.jar` path
 - `CFR_JAR`: if `--cfr` is not provided, this env var can point to `cfr.jar`
 
 Example:
 
 ```bash
-class-finder --m2 /data/m2 --db /data/class-finder.redb --cfr /tools/cfr.jar find org.example.Foo
+class-finder --m2 /data/m2 --db /data/class-finder.lmdb --cfr /tools/cfr.jar find org.example.Foo
 ```
 
 ### 6) Implicit `find` Rule
@@ -163,8 +163,8 @@ If no explicit subcommand is provided (`find/load/warmup/index/stats/clear`), `c
 These two are equivalent:
 
 ```bash
-class-finder --db /tmp/cf.redb org.springframework.stereotype.Component
-class-finder --db /tmp/cf.redb find org.springframework.stereotype.Component
+class-finder --db /tmp/cf.lmdb org.springframework.stereotype.Component
+class-finder --db /tmp/cf.lmdb find org.springframework.stereotype.Component
 ```
 
 ## Advanced Features
@@ -254,7 +254,7 @@ class-finder clear
 ### Concurrent Reads and Snapshots
 
 - The storage backend is now LMDB (via heed).
-- Write operations such as `index`, `load`, and `warmup` update the main DB (default pathname `db.redb`) and publish a read-only snapshot (default pathname `db.snapshot.redb`) after completion.
+- Write operations such as `index`, `load`, and `warmup` update the main DB (default pathname `db.lmdb`) and publish a read-only snapshot (default pathname `db.snapshot.lmdb`) after completion.
 - `find` and `stats` read from the snapshot by default, so they do not contend for the main DB writer lock.
 - Snapshot reads are eventually consistent: very recent writes may not be visible until the next snapshot publish.
 - If you set a custom main DB path via `--db`, the snapshot path is derived from it automatically.

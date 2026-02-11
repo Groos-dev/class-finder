@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**class-finder** is a high-performance Rust CLI tool that finds Java classes in local Maven repositories (`~/.m2/repository`) and returns decompiled source code using CFR. It features persistent caching with redb, class-to-JAR indexing, background warmup of frequently accessed JARs, and hotspot tracking for performance optimization.
+**class-finder** is a high-performance Rust CLI tool that finds Java classes in local Maven repositories (`~/.m2/repository`) and returns decompiled source code using CFR. It features persistent caching with LMDB (via heed), class-to-JAR indexing, background warmup of frequently accessed JARs, and hotspot tracking for performance optimization.
 
 ## Build & Development Commands
 
@@ -40,7 +40,7 @@ cargo clean
 The codebase is organized into modular layers with clear separation of concerns:
 
 ### Core Data Layer
-- **cache.rs**: Persistent storage using redb with ACID guarantees. Manages 6 tables:
+- **cache.rs**: Persistent storage using LMDB (via heed) with ACID guarantees. Manages 6 tables:
   - `CLASSES_TABLE`: Decompiled class sources (key: `"ClassName::jar_path"`)
   - `JARS_TABLE`: JAR load status tracking
   - `CLASS_REGISTRY_TABLE`: Class-to-JAR mappings for fast lookups
@@ -163,7 +163,7 @@ Run tests with: `cargo test`
 ## Dependencies
 
 Key crates:
-- **redb**: Embedded ACID database for persistent cache
+- **heed**: LMDB bindings used for persistent cache
 - **clap**: CLI argument parsing with derive macros
 - **rayon**: Data parallelism for JAR scanning and filtering
 - **zip**: JAR file reading
@@ -182,7 +182,7 @@ Key crates:
 ## Configuration Paths
 
 Default locations (platform-specific via `dirs` crate):
-- **Database**: `~/.local/share/class-finder/cache.redb` (Linux), `~/Library/Application Support/class-finder/cache.redb` (macOS)
+- **Database**: `~/.local/share/class-finder/db.lmdb` (Linux), `~/Library/Application Support/class-finder/db.lmdb` (macOS)
 - **CFR**: `~/.local/share/class-finder/tools/cfr.jar` (Linux), `~/Library/Application Support/class-finder/tools/cfr.jar` (macOS)
 - **Maven repo**: `~/.m2/repository` (standard Maven location)
 

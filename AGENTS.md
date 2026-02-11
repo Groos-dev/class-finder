@@ -23,7 +23,7 @@ Follow repository conventions over generic Rust habits.
   - `cache`, `registry`, `scan`, `probe`, `catalog`, `cfr`, `parse`
   - `buffer`, `warmup`, `hotspot`, `incremental`, `cli`, `config`, `main`
 - Core characteristics:
-  - persistent cache via `redb`
+  - persistent cache via `LMDB` (`heed`)
   - class-to-jar registry + indexing
   - background buffered writes
   - warmup/hotspot optimization

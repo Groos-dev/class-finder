@@ -688,7 +688,7 @@ mod tests {
         let args = vec![
             "class-finder".to_string(),
             "--db".to_string(),
-            "/tmp/cf.redb".to_string(),
+            "/tmp/cf.lmdb".to_string(),
             "org.example.Demo".to_string(),
         ];
         let rewritten = rewrite_args_for_implicit_find(args);
@@ -700,13 +700,13 @@ mod tests {
     fn rewrite_args_for_implicit_find_keeps_explicit_subcommand() {
         let args = vec![
             "class-finder".to_string(),
-            "--db=/tmp/cf.redb".to_string(),
+            "--db=/tmp/cf.lmdb".to_string(),
             "stats".to_string(),
         ];
         let rewritten = rewrite_args_for_implicit_find(args);
         assert_eq!(
             rewritten,
-            vec!["class-finder", "--db=/tmp/cf.redb", "stats"]
+            vec!["class-finder", "--db=/tmp/cf.lmdb", "stats"]
         );
     }
 

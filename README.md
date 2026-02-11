@@ -146,14 +146,14 @@ class-finder org.springframework.stereotype.Component --version 6.2.8 --code-onl
 ### 5）常用全局参数
 
 - `--m2 <PATH>`：指定 Maven 仓库根目录（默认 `~/.m2/repository`）
-- `--db <FILE>`：指定缓存 DB 文件路径（默认本地数据目录下 `class-finder/db.redb`，文件名沿用历史命名）
+- `--db <FILE>`：指定缓存 DB 文件路径（默认本地数据目录下 `class-finder/db.lmdb`）
 - `--cfr <FILE>`：指定本地 `cfr.jar` 路径
 - `CFR_JAR`：未传 `--cfr` 时，可用环境变量指定 `cfr.jar` 路径
 
 示例：
 
 ```bash
-class-finder --m2 /data/m2 --db /data/class-finder.redb --cfr /tools/cfr.jar find org.example.Foo
+class-finder --m2 /data/m2 --db /data/class-finder.lmdb --cfr /tools/cfr.jar find org.example.Foo
 ```
 
 ### 6）隐式 find 规则
@@ -163,8 +163,8 @@ class-finder --m2 /data/m2 --db /data/class-finder.redb --cfr /tools/cfr.jar fin
 例如下面两条等价：
 
 ```bash
-class-finder --db /tmp/cf.redb org.springframework.stereotype.Component
-class-finder --db /tmp/cf.redb find org.springframework.stereotype.Component
+class-finder --db /tmp/cf.lmdb org.springframework.stereotype.Component
+class-finder --db /tmp/cf.lmdb find org.springframework.stereotype.Component
 ```
 
 ## 高级功能
@@ -254,7 +254,7 @@ class-finder clear
 ### 并发读与快照
 
 - 底层存储已切换为 LMDB（通过 heed）。
-- `index` / `load` / `warmup` 等写操作会更新主库（默认路径名 `db.redb`），并在完成后发布一个只读快照（默认路径名 `db.snapshot.redb`）。
+- `index` / `load` / `warmup` 等写操作会更新主库（默认路径名 `db.lmdb`），并在完成后发布一个只读快照（默认路径名 `db.snapshot.lmdb`）。
 - `find` / `stats` 默认从只读快照读取，避免与写进程争抢主库写锁。
 - 快照是最终一致的：读请求可能短时间内看不到最新写入，下一次快照发布后会可见。
 - 如果你通过 `--db` 指定了自定义主库路径，快照路径会跟随该路径自动推导。

@@ -72,7 +72,7 @@ fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> anyhow::Result<V
 fn phase2_three_layer_flow_works() -> anyhow::Result<()> {
     let base = temp_dir("phase2_flow");
     let m2 = base.join("m2");
-    let db = base.join("db.redb");
+    let db = base.join("db.lmdb");
     let fake_cfr = base.join("cfr.jar");
     write_file(&fake_cfr, "stub")?;
 
@@ -234,7 +234,7 @@ fi
     assert!(stats_after_load["cataloged_jars"].as_u64().unwrap_or(0) >= 1);
     assert!(stats_after_load["loaded_jars"].as_u64().unwrap_or(0) >= 1);
 
-    let db2 = base.join("db2.redb");
+    let db2 = base.join("db2.lmdb");
     let warm = run_json(
         bin,
         &[
@@ -279,7 +279,7 @@ fi
 fn phase2_implicit_find_with_global_flags_works() -> anyhow::Result<()> {
     let base = temp_dir("phase2_implicit_find");
     let m2 = base.join("m2");
-    let db = base.join("db.redb");
+    let db = base.join("db.lmdb");
     let fake_cfr = base.join("cfr.jar");
     write_file(&fake_cfr, "stub")?;
 
@@ -358,7 +358,7 @@ fi
 fn phase2_read_snapshot_not_blocked_by_main_db_lock() -> anyhow::Result<()> {
     let base = temp_dir("phase2_snapshot_lock");
     let m2 = base.join("m2");
-    let db = base.join("db.redb");
+    let db = base.join("db.lmdb");
     let fake_cfr = base.join("cfr.jar");
     write_file(&fake_cfr, "stub")?;
 
@@ -463,7 +463,7 @@ fi
 fn phase2_parallel_snapshot_reads_not_blocked_by_main_db_lock() -> anyhow::Result<()> {
     let base = temp_dir("phase2_parallel_snapshot_lock");
     let m2 = base.join("m2");
-    let db = base.join("db.redb");
+    let db = base.join("db.lmdb");
     let fake_cfr = base.join("cfr.jar");
     write_file(&fake_cfr, "stub")?;
 

@@ -17,7 +17,7 @@ pub fn resolve_db_path(cli: &Cli) -> Result<PathBuf> {
         return Ok(p);
     }
 
-    Ok(class_finder_home()?.join("db.redb"))
+    Ok(class_finder_home()?.join("db.lmdb"))
 }
 
 pub fn resolve_snapshot_db_path(cli: &Cli) -> Result<PathBuf> {
@@ -26,10 +26,16 @@ pub fn resolve_snapshot_db_path(cli: &Cli) -> Result<PathBuf> {
 }
 
 pub fn snapshot_db_path(db_path: &Path) -> PathBuf {
-    if db_path.extension().is_some() {
-        db_path.with_extension("snapshot.redb")
-    } else {
-        db_path.with_extension("snapshot")
+    let stem = db_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or("db");
+    let file_name = format!("{stem}.snapshot.lmdb");
+
+    match db_path.parent() {
+        Some(parent) => parent.join(file_name),
+        None => PathBuf::from(file_name),
     }
 }
 
@@ -52,16 +58,13 @@ pub fn resolve_cfr_path(cli: &Cli) -> Result<PathBuf> {
 }
 
 pub fn clear_db(db_path: &Path) -> Result<()> {
-    if db_path.exists() {
-        std::fs::remove_file(db_path)
-            .with_context(|| format!("Failed to remove db file: {}", db_path.display()))?;
-    }
+    remove_file_if_exists(db_path, "db")?;
+    remove_file_if_exists(&lmdb_lock_path(db_path), "db lock")?;
+
     let snapshot = snapshot_db_path(db_path);
-    if snapshot.exists() {
-        std::fs::remove_file(&snapshot).with_context(|| {
-            format!("Failed to remove snapshot db file: {}", snapshot.display())
-        })?;
-    }
+    remove_file_if_exists(&snapshot, "snapshot db")?;
+    remove_file_if_exists(&lmdb_lock_path(&snapshot), "snapshot db lock")?;
+
     Ok(())
 }
 
@@ -76,7 +79,9 @@ pub fn publish_snapshot(main_db_path: &Path, snapshot_db_path: &Path) -> Result<
         })?;
     }
 
-    let tmp = snapshot_db_path.with_extension("snapshot.redb.tmp");
+    let mut tmp_os = snapshot_db_path.as_os_str().to_os_string();
+    tmp_os.push(".tmp");
+    let tmp = PathBuf::from(tmp_os);
     std::fs::copy(main_db_path, &tmp).with_context(|| {
         format!(
             "Failed to copy snapshot file: {} -> {}",
@@ -103,6 +108,20 @@ fn class_finder_home() -> Result<PathBuf> {
         .or_else(dirs::home_dir)
         .ok_or_else(|| anyhow::anyhow!("Failed to resolve data directory"))?;
     Ok(base.join("class-finder"))
+}
+
+fn lmdb_lock_path(db_path: &Path) -> PathBuf {
+    let mut os = db_path.as_os_str().to_os_string();
+    os.push("-lock");
+    PathBuf::from(os)
+}
+
+fn remove_file_if_exists(path: &Path, kind: &str) -> Result<()> {
+    if path.exists() {
+        std::fs::remove_file(path)
+            .with_context(|| format!("Failed to remove {kind} file: {}", path.display()))?;
+    }
+    Ok(())
 }
 
 fn install_cfr_if_missing(target_path: &Path) -> Result<()> {

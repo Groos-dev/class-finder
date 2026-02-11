@@ -139,7 +139,7 @@ mod tests {
             .unwrap()
             .as_nanos();
         std::env::temp_dir().join(format!(
-            "class_finder_test_{}_{}_{}.redb",
+            "class_finder_test_{}_{}_{}.lmdb",
             std::process::id(),
             nanos,
             name
