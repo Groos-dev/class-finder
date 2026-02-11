@@ -35,10 +35,6 @@ impl HotspotTracker {
         }
     }
 
-    pub fn warmup_threshold(&self) -> u32 {
-        self.warmup_threshold
-    }
-
     pub fn record_access(&self, jar_key: &str) -> Result<Option<WarmupRequest>> {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)

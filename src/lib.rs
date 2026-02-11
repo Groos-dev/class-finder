@@ -15,6 +15,7 @@
 //! - **warmup**: Background preloading of frequently accessed JARs
 //! - **hotspot**: Access tracking and warmup prioritization
 //! - **incremental**: Incremental indexing based on file modification times
+//! - **structure**: Java class structure extraction using tree-sitter AST parsing
 
 pub mod buffer;
 pub mod cache;
@@ -28,4 +29,5 @@ pub mod parse;
 pub mod probe;
 pub mod registry;
 pub mod scan;
+pub mod structure;
 pub mod warmup;

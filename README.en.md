@@ -29,8 +29,8 @@ The installation script automatically:
   - Linux: `~/.local/share/class-finder/tools/cfr.jar` (or `$XDG_DATA_HOME/class-finder/tools/cfr.jar`)
   - Windows: `%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
 - Installs the `find-class` Skill to:
-  - macOS/Linux: `~/.claude/skills/find-class/SKILL.md`
-  - Windows: `%USERPROFILE%\\.claude\\skills\\find-class\\SKILL.md`
+  - macOS/Linux: `~/.claude/class-finder/SKILL.md`
+  - Windows: `%USERPROFILE%\\.claude\\class-finder\\SKILL.md`
 
 #### Specify Version and Install Directory
 
@@ -119,16 +119,52 @@ class-finder org.springframework.stereotype.Component
 class-finder org.springframework.stereotype.Component --code-only
 ```
 
+Equivalent syntax:
+
+```bash
+class-finder org.springframework.stereotype.Component --format code
+```
+
 - Plain text summary:
 
 ```bash
 class-finder org.springframework.stereotype.Component --format text
 ```
 
+- Write output to file (parent directory is created automatically):
+
+```bash
+class-finder org.springframework.stereotype.Component --code-only --output /tmp/Component.java
+```
+
 ### 4) Specify Version (parsed from Maven path)
 
 ```bash
 class-finder org.springframework.stereotype.Component --version 6.2.8 --code-only
+```
+
+### 5) Common Global Options
+
+- `--m2 <PATH>`: Maven repository root path (default: `~/.m2/repository`)
+- `--db <FILE>`: cache DB file path (default: `class-finder/db.redb` under local data directory)
+- `--cfr <FILE>`: local `cfr.jar` path
+- `CFR_JAR`: if `--cfr` is not provided, this env var can point to `cfr.jar`
+
+Example:
+
+```bash
+class-finder --m2 /data/m2 --db /data/class-finder.redb --cfr /tools/cfr.jar find org.example.Foo
+```
+
+### 6) Implicit `find` Rule
+
+If no explicit subcommand is provided (`find/load/warmup/index/stats/clear`), `class-finder` treats the first non-global argument as `find` input.
+
+These two are equivalent:
+
+```bash
+class-finder --db /tmp/cf.redb org.springframework.stereotype.Component
+class-finder --db /tmp/cf.redb find org.springframework.stereotype.Component
 ```
 
 ## Advanced Features
@@ -171,10 +207,16 @@ class-finder warmup --hot
 class-finder warmup --group org.springframework
 ```
 
-- Warmup top N hotspot JARs:
+- Warmup top N hotspot JARs (requires `--hot`):
 
 ```bash
-class-finder warmup --top 10
+class-finder warmup --hot --top 10
+```
+
+- Limit warmup targets with `--limit`:
+
+```bash
+class-finder warmup --hot --top 50 --limit 10
 ```
 
 - Warmup a specific JAR:
@@ -182,6 +224,11 @@ class-finder warmup --top 10
 ```bash
 class-finder warmup /path/to/your.jar
 ```
+
+Note: `warmup` requires one of the following:
+- provide positional `JAR`
+- or use `--hot`
+- or use `--group <GROUP>`
 
 ## Cache Management
 

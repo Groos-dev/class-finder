@@ -6,7 +6,7 @@
 
 use anyhow::{Context, Result};
 use redb::{Database, ReadableTable, TableDefinition};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub const CLASSES_TABLE: TableDefinition<&str, &str> = TableDefinition::new("classes");
@@ -49,10 +49,6 @@ impl PersistentCache {
 
     pub fn db(&self) -> Arc<Database> {
         Arc::clone(&self.db)
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.db_path
     }
 
     pub fn pending_gauge_path(&self) -> PathBuf {

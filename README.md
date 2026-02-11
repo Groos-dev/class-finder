@@ -29,8 +29,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.co
   - Linux：`~/.local/share/class-finder/tools/cfr.jar`（或 `$XDG_DATA_HOME/class-finder/tools/cfr.jar`）
   - Windows：`%LOCALAPPDATA%\\class-finder\\tools\\cfr.jar`
 - 安装 `find-class` Skill 到：
-  - macOS/Linux：`~/.claude/skills/find-class/SKILL.md`
-  - Windows：`%USERPROFILE%\\.claude\\skills\\find-class\\SKILL.md`
+  - macOS/Linux：`~/.claude/class-finder/SKILL.md`
+  - Windows：`%USERPROFILE%\\.claude\\class-finder\\SKILL.md`
 
 #### 指定版本与安装目录
 
@@ -119,16 +119,52 @@ class-finder org.springframework.stereotype.Component
 class-finder org.springframework.stereotype.Component --code-only
 ```
 
+等价写法：
+
+```bash
+class-finder org.springframework.stereotype.Component --format code
+```
+
 - 纯文本摘要：
 
 ```bash
 class-finder org.springframework.stereotype.Component --format text
 ```
 
+- 输出到文件（自动创建父目录）：
+
+```bash
+class-finder org.springframework.stereotype.Component --code-only --output /tmp/Component.java
+```
+
 ### 4）指定版本（从 maven 路径解析版本号）
 
 ```bash
 class-finder org.springframework.stereotype.Component --version 6.2.8 --code-only
+```
+
+### 5）常用全局参数
+
+- `--m2 <PATH>`：指定 Maven 仓库根目录（默认 `~/.m2/repository`）
+- `--db <FILE>`：指定缓存 DB 文件路径（默认本地数据目录下 `class-finder/db.redb`）
+- `--cfr <FILE>`：指定本地 `cfr.jar` 路径
+- `CFR_JAR`：未传 `--cfr` 时，可用环境变量指定 `cfr.jar` 路径
+
+示例：
+
+```bash
+class-finder --m2 /data/m2 --db /data/class-finder.redb --cfr /tools/cfr.jar find org.example.Foo
+```
+
+### 6）隐式 find 规则
+
+如果你没有显式写子命令（`find/load/warmup/index/stats/clear`），`class-finder` 会把第一个非全局参数当作 `find` 的参数。
+
+例如下面两条等价：
+
+```bash
+class-finder --db /tmp/cf.redb org.springframework.stereotype.Component
+class-finder --db /tmp/cf.redb find org.springframework.stereotype.Component
 ```
 
 ## 高级功能
@@ -171,10 +207,16 @@ class-finder warmup --hot
 class-finder warmup --group org.springframework
 ```
 
-- 预热前 N 个热点 JAR：
+- 预热前 N 个热点 JAR（需配合 `--hot`）：
 
 ```bash
-class-finder warmup --top 10
+class-finder warmup --hot --top 10
+```
+
+- 结合 `--limit` 截断本次预热目标数量：
+
+```bash
+class-finder warmup --hot --top 50 --limit 10
 ```
 
 - 预热指定 JAR：
@@ -182,6 +224,11 @@ class-finder warmup --top 10
 ```bash
 class-finder warmup /path/to/your.jar
 ```
+
+说明：`warmup` 必须满足以下其一：
+- 传入 `JAR` 位置参数
+- 或使用 `--hot`
+- 或使用 `--group <GROUP>`
 
 ## 缓存管理
 

@@ -1,17 +1,30 @@
-## Find Class（class-finder）
+---
+name: "find-class"
+description: "当无法通过grep查找类的实现时，使用全类名从本地Maven仓库查找Java类并返回反编译源码。"
+---
 
-当无法在工作目录查到某个类的实现时，通过该 Skill 查询 jar 中的类实现（反编译源码）。
+# find-class
 
-### 你需要提供
-- 类名（推荐全限定名，例如 `org.apache.commons.lang3.StringUtils`）
-- 可选：版本号（如果你想指定 Maven 版本）
+使用全类名从本地 Maven 仓库中查找 Java 类的反编译源码。
 
-### 我会做什么
-- 在本地 `~/.m2/repository` 中定位包含该类的 jar
-- 反编译并返回源码（必要时会缓存结果以加速后续查询）
+## 使用规范
 
-### 示例
-- 查找某个类的实现：
-  - `class-finder find org.apache.commons.lang3.StringUtils`
-- 指定版本：
-  - `class-finder find org.apache.commons.lang3.StringUtils --version 3.12.0`
+**必须使用全类名（包含完整包名），例如：`org.springframework.stereotype.Component`**
+
+### 查找类源码
+
+```bash
+class-finder org.springframework.stereotype.Component --code-only
+```
+
+### 指定版本
+
+```bash
+class-finder org.springframework.stereotype.Component --version 6.2.8 --code-only
+```
+
+### 保存到文件
+
+```bash
+class-finder org.springframework.stereotype.Component --code-only -o Component.java
+```

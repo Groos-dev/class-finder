@@ -14,6 +14,7 @@ use class_finder::scan::{
     class_name_to_class_path, extract_version_from_maven_path, infer_scan_path, infer_search_paths,
     scan_jars,
 };
+use class_finder::structure::{ClassStructure, parse_class_structure};
 use class_finder::warmup::{Warmer, WarmerConfig, WarmupTask};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -221,6 +222,8 @@ struct FindVersion {
     content: String,
     cache_hit: bool,
     source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    structure: Option<ClassStructure>,
 }
 
 #[derive(Debug, Serialize)]
@@ -418,6 +421,7 @@ fn find_class(
                 content,
                 cache_hit: true,
                 source: "cache".to_string(),
+                structure: None,
             });
             if let (Some(warmer), Some(req)) = (deps.warmer, warmup_request) {
                 let mut exclude_fqns = HashSet::new();
@@ -462,6 +466,7 @@ fn find_class(
             content,
             cache_hit: false,
             source: miss_source.clone(),
+            structure: None,
         });
     }
 
@@ -649,6 +654,38 @@ fn write_find_output(
         OutputFormat::Code => {
             let chosen = choose_default_version(&result.versions)?;
             chosen.content.clone()
+        }
+        OutputFormat::Structure => {
+            #[derive(Serialize)]
+            struct StructureVersion<'a> {
+                version: &'a Option<String>,
+                jar_path: &'a str,
+                #[serde(skip_serializing_if = "Option::is_none")]
+                structure: Option<ClassStructure>,
+            }
+            #[derive(Serialize)]
+            struct StructureOutput<'a> {
+                class_name: &'a str,
+                matched_jars: usize,
+                duration_ms: u64,
+                versions: Vec<StructureVersion<'a>>,
+            }
+            let versions: Vec<StructureVersion> = result
+                .versions
+                .iter()
+                .map(|v| StructureVersion {
+                    version: &v.version,
+                    jar_path: &v.jar_path,
+                    structure: parse_class_structure(&v.content),
+                })
+                .collect();
+            let out = StructureOutput {
+                class_name: &result.class_name,
+                matched_jars: result.matched_jars,
+                duration_ms: result.duration_ms,
+                versions,
+            };
+            serde_json::to_string_pretty(&out)?
         }
     };
 

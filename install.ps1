@@ -84,13 +84,13 @@ if (-not (Test-Path $cfrPath)) {
   Invoke-WebRequest -Uri $CfrUrl -OutFile $cfrPath -UseBasicParsing
 }
 
-$skillDir = Join-Path $env:USERPROFILE ".claude\skills\find-class"
+$skillDir = Join-Path $env:USERPROFILE ".claude\class-finder"
 New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($SkillRef)) {
   $SkillRef = $Version
 }
-$skillUrl = "https://raw.githubusercontent.com/$Repo/$SkillRef/.claude/skills/find-class/SKILL.md"
-$skillFallbackUrl = "https://raw.githubusercontent.com/$Repo/main/.claude/skills/find-class/SKILL.md"
+$skillUrl = "https://raw.githubusercontent.com/$Repo/$SkillRef/skills/find-class/SKILL.md"
+$skillFallbackUrl = "https://raw.githubusercontent.com/$Repo/main/skills/find-class/SKILL.md"
 try {
   Invoke-WebRequest -Uri $skillUrl -OutFile (Join-Path $skillDir "SKILL.md") -UseBasicParsing
 } catch {

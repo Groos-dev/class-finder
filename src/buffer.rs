@@ -48,10 +48,6 @@ impl WriteBufferHandle {
         self.pending.fetch_sub(1, Ordering::Relaxed);
         Ok(())
     }
-
-    pub fn pending_count(&self) -> usize {
-        self.pending.load(Ordering::Relaxed)
-    }
 }
 
 #[derive(Debug, Copy, Clone)]

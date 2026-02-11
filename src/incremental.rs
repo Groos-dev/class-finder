@@ -1,6 +1,6 @@
 use anyhow::Result;
 use redb::ReadableTable;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -41,10 +41,6 @@ pub struct IncrementalIndexer {
 impl IncrementalIndexer {
     pub fn new(db: Arc<redb::Database>, root: PathBuf) -> Self {
         Self { db, root }
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
     }
 
     pub fn scan_changes(&self) -> Result<(usize, Vec<PathBuf>)> {

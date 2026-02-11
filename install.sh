@@ -151,11 +151,11 @@ if [ ! -f "$cfr_path" ]; then
   mv -f "$tmp/cfr.jar" "$cfr_path"
 fi
 
-claude_skill_dir="${HOME}/.claude/skills/find-class"
+claude_skill_dir="${HOME}/.claude/class-finder"
 mkdir -p "$claude_skill_dir"
 skill_ref="${SKILL_REF:-$version}"
-skill_url="https://raw.githubusercontent.com/${REPO}/${skill_ref}/.claude/skills/find-class/SKILL.md"
-skill_fallback_url="https://raw.githubusercontent.com/${REPO}/main/.claude/skills/find-class/SKILL.md"
+skill_url="https://raw.githubusercontent.com/${REPO}/${skill_ref}/skills/find-class/SKILL.md"
+skill_fallback_url="https://raw.githubusercontent.com/${REPO}/main/skills/find-class/SKILL.md"
 
 echo "Installing Claude skill to ${claude_skill_dir}/SKILL.md" >&2
 if ! curl -fsSL -o "${claude_skill_dir}/SKILL.md" "$skill_url"; then
