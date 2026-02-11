@@ -4,7 +4,7 @@
 
 在本地 Maven 仓库（`~/.m2/repository`）中查找 Java 类所在的 jar，并返回反编译后的源码。
 
-运行时会自动管理反编译器（CFR）与缓存（redb），用户不需要关心它们的存放位置。
+运行时会自动管理反编译器（CFR）与缓存（LMDB via heed），用户不需要关心它们的存放位置。
 
 ## 安装
 
@@ -146,7 +146,7 @@ class-finder org.springframework.stereotype.Component --version 6.2.8 --code-onl
 ### 5）常用全局参数
 
 - `--m2 <PATH>`：指定 Maven 仓库根目录（默认 `~/.m2/repository`）
-- `--db <FILE>`：指定缓存 DB 文件路径（默认本地数据目录下 `class-finder/db.redb`）
+- `--db <FILE>`：指定缓存 DB 文件路径（默认本地数据目录下 `class-finder/db.redb`，文件名沿用历史命名）
 - `--cfr <FILE>`：指定本地 `cfr.jar` 路径
 - `CFR_JAR`：未传 `--cfr` 时，可用环境变量指定 `cfr.jar` 路径
 
@@ -250,6 +250,14 @@ class-finder stats
 ```bash
 class-finder clear
 ```
+
+### 并发读与快照
+
+- 底层存储已切换为 LMDB（通过 heed）。
+- `index` / `load` / `warmup` 等写操作会更新主库（默认路径名 `db.redb`），并在完成后发布一个只读快照（默认路径名 `db.snapshot.redb`）。
+- `find` / `stats` 默认从只读快照读取，避免与写进程争抢主库写锁。
+- 快照是最终一致的：读请求可能短时间内看不到最新写入，下一次快照发布后会可见。
+- 如果你通过 `--db` 指定了自定义主库路径，快照路径会跟随该路径自动推导。
 
 第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中本地缓存会显著加速。使用 `index` 和 `warmup` 命令可以提前构建索引和缓存，进一步提升查询速度。
 
