@@ -7,7 +7,7 @@
 use anyhow::{Context, Result};
 use heed::types::Str;
 use heed::{Database, Env, EnvFlags, EnvOpenOptions, RoTxn};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub const CLASSES_DB: &str = "classes";
@@ -181,13 +181,20 @@ impl ReadOnlyCache {
     }
 }
 
-fn open_env(db_path: &PathBuf) -> Result<Env> {
+fn open_env(db_path: &Path) -> Result<Env> {
     let mut options = EnvOpenOptions::new();
     options.map_size(DEFAULT_MAP_SIZE);
     options.max_dbs(DEFAULT_MAX_DBS);
-    // SAFETY: We do not use NO_LOCK and keep default LMDB locking guarantees.
-    // NO_SUB_DIR preserves current single-path CLI behavior for --db.
+
     unsafe {
+        if db_path.is_dir() {
+            return options
+                .open(db_path)
+                .with_context(|| format!("Failed to create/open db env: {}", db_path.display()));
+        }
+
+        // SAFETY: We do not use NO_LOCK and keep default LMDB locking guarantees.
+        // NO_SUB_DIR preserves current single-path CLI behavior for --db.
         options.flags(EnvFlags::NO_SUB_DIR);
         options
             .open(db_path)

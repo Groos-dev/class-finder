@@ -51,6 +51,11 @@ fn make_executable(path: &std::path::Path) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[cfg(not(unix))]
+fn make_executable(_path: &std::path::Path) -> anyhow::Result<()> {
+    Ok(())
+}
+
 fn run_json(bin: &str, args: &[&str], envs: &[(&str, &str)]) -> anyhow::Result<Value> {
     let mut cmd = Command::new(bin);
     cmd.args(args);

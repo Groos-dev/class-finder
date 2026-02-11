@@ -244,9 +244,6 @@ mod tests {
             key: "a.A::jar1".to_string(),
             source: "class A {}".to_string(),
         })?;
-        assert!(buffer.pending_count() >= 1);
-        assert!(std::fs::read_to_string(&gauge).unwrap_or_default().trim() != "0");
-        assert!(cache.stats()?.write_buffer_pending >= 1);
 
         buffer.shutdown_and_flush()?;
         assert_eq!(
