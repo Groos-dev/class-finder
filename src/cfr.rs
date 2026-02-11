@@ -2,6 +2,28 @@ use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::process::Command;
 
+fn java_command(args: &[&str]) -> Result<std::process::Output> {
+    let java_bin = std::env::var("CLASS_FINDER_JAVA").unwrap_or_else(|_| "java".to_string());
+
+    #[cfg(windows)]
+    {
+        let lower = java_bin.to_ascii_lowercase();
+        if lower.ends_with(".cmd") || lower.ends_with(".bat") {
+            return Command::new("cmd")
+                .arg("/C")
+                .arg(&java_bin)
+                .args(args)
+                .output()
+                .context("Failed to execute java (ensure JRE/JDK is installed)");
+        }
+    }
+
+    Command::new(&java_bin)
+        .args(args)
+        .output()
+        .context("Failed to execute java (ensure JRE/JDK is installed)")
+}
+
 #[derive(Debug, Clone)]
 pub struct Cfr {
     cfr_jar: std::path::PathBuf,
@@ -13,22 +35,19 @@ impl Cfr {
     }
 
     pub fn decompile_class(&self, jar_path: &Path, class_name: &str) -> Result<String> {
-        let output = Command::new("java")
-            .args([
-                "-jar",
-                self.cfr_jar
-                    .to_str()
-                    .context("cfr.jar path is not valid UTF-8")?,
-                "--extraclasspath",
-                jar_path.to_str().context("jar path is not valid UTF-8")?,
-                class_name,
-                "--silent",
-                "true",
-                "--comments",
-                "false",
-            ])
-            .output()
-            .context("Failed to execute java (ensure JRE/JDK is installed)")?;
+        let output = java_command(&[
+            "-jar",
+            self.cfr_jar
+                .to_str()
+                .context("cfr.jar path is not valid UTF-8")?,
+            "--extraclasspath",
+            jar_path.to_str().context("jar path is not valid UTF-8")?,
+            class_name,
+            "--silent",
+            "true",
+            "--comments",
+            "false",
+        ])?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -39,20 +58,17 @@ impl Cfr {
     }
 
     pub fn decompile_jar(&self, jar_path: &Path) -> Result<String> {
-        let output = Command::new("java")
-            .args([
-                "-jar",
-                self.cfr_jar
-                    .to_str()
-                    .context("cfr.jar path is not valid UTF-8")?,
-                jar_path.to_str().context("jar path is not valid UTF-8")?,
-                "--silent",
-                "true",
-                "--comments",
-                "false",
-            ])
-            .output()
-            .context("Failed to execute java (ensure JRE/JDK is installed)")?;
+        let output = java_command(&[
+            "-jar",
+            self.cfr_jar
+                .to_str()
+                .context("cfr.jar path is not valid UTF-8")?,
+            jar_path.to_str().context("jar path is not valid UTF-8")?,
+            "--silent",
+            "true",
+            "--comments",
+            "false",
+        ])?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

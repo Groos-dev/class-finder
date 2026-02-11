@@ -257,7 +257,11 @@ fi
         path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let envs = [("PATH", path_env.as_str())];
+    let java_bin = fake_java.to_string_lossy().to_string();
+    let envs = [
+        ("PATH", path_env.as_str()),
+        ("CLASS_FINDER_JAVA", java_bin.as_str()),
+    ];
 
     let first = run_json(
         bin,
@@ -503,7 +507,11 @@ fi
         path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
-    let envs = [("PATH", path_env.as_str())];
+    let java_bin = fake_java.to_string_lossy().to_string();
+    let envs = [
+        ("PATH", path_env.as_str()),
+        ("CLASS_FINDER_JAVA", java_bin.as_str()),
+    ];
 
     let result = run_json(
         bin,
