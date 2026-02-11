@@ -23,6 +23,14 @@ fn write_file(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn fake_java_name() -> &'static str {
+    if cfg!(windows) { "java.cmd" } else { "java" }
+}
+
+fn path_separator() -> &'static str {
+    if cfg!(windows) { ";" } else { ":" }
+}
+
 fn write_jar(path: &std::path::Path, entries: &[(&str, &[u8])]) -> anyhow::Result<()> {
     use std::io::Write;
     use zip::write::FileOptions;
@@ -91,10 +99,33 @@ fn phase2_three_layer_flow_works() -> anyhow::Result<()> {
     )?;
 
     let fake_bin_dir = base.join("bin");
-    let fake_java = fake_bin_dir.join("java");
+    let fake_java = fake_bin_dir.join(fake_java_name());
     write_file(
         &fake_java,
-        r#"#!/bin/sh
+        if cfg!(windows) {
+            r#"@echo off
+if "%3"=="--extraclasspath" (
+  if "%5"=="org.example.pkg.A" (
+    echo package org.example.pkg;
+    echo public class A {}
+    exit /b 0
+  )
+  if "%5"=="org.example.pkg.B" (
+    echo package org.example.pkg;
+    echo public class B {}
+    exit /b 0
+  )
+  echo package org.example.pkg; public class Unknown {}
+  exit /b 0
+)
+echo package org.example.pkg;
+echo public class A {}
+echo package org.example.pkg;
+echo public class B {}
+exit /b 0
+"#
+        } else {
+            r#"#!/bin/sh
 set -e
 if [ "$3" = "--extraclasspath" ]; then
   cls="$5"
@@ -143,14 +174,16 @@ public class B {
 }
 EOF
 fi
-"#,
+"#
+        },
     )?;
     make_executable(&fake_java)?;
 
     let bin = env!("CARGO_BIN_EXE_class-finder");
     let path_env = format!(
-        "{}:{}",
+        "{}{}{}",
         fake_bin_dir.to_string_lossy(),
+        path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
     let envs = [("PATH", path_env.as_str())];
@@ -292,10 +325,22 @@ fn phase2_implicit_find_with_global_flags_works() -> anyhow::Result<()> {
     write_jar(&jar, &[("org/example/pkg/A.class", b"")])?;
 
     let fake_bin_dir = base.join("bin");
-    let fake_java = fake_bin_dir.join("java");
+    let fake_java = fake_bin_dir.join(fake_java_name());
     write_file(
         &fake_java,
-        r#"#!/bin/sh
+        if cfg!(windows) {
+            r#"@echo off
+if "%3"=="--extraclasspath" (
+  echo package org.example.pkg;
+  echo public class A {}
+  exit /b 0
+)
+echo package org.example.pkg;
+echo public class A {}
+exit /b 0
+"#
+        } else {
+            r#"#!/bin/sh
 set -e
 if [ "$3" = "--extraclasspath" ]; then
   cat <<'EOF'
@@ -318,14 +363,16 @@ public class A {
 }
 EOF
 fi
-"#,
+"#
+        },
     )?;
     make_executable(&fake_java)?;
 
     let bin = env!("CARGO_BIN_EXE_class-finder");
     let path_env = format!(
-        "{}:{}",
+        "{}{}{}",
         fake_bin_dir.to_string_lossy(),
+        path_separator(),
         std::env::var("PATH").unwrap_or_default()
     );
     let envs = [("PATH", path_env.as_str())];
