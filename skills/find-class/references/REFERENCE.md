@@ -13,6 +13,14 @@
 class-finder org.springframework.stereotype.Component --code-only
 ```
 
+### Contract-first structure output (recommended for AI)
+
+```bash
+class-finder org.springframework.stereotype.Component --format structure
+```
+
+Use this when you only need class contract context (fields, method signatures, inheritance) without implementation details.
+
 ### Explicit `find` subcommand
 
 ```bash
@@ -57,6 +65,12 @@ class-finder org.springframework.stereotype.Component --code-only --output /tmp/
 class-finder org.springframework.stereotype.Component --code-only -o Component.java
 ```
 
+### Save structure output to file
+
+```bash
+class-finder org.springframework.stereotype.Component --format structure --output /tmp/Component.structure.json
+```
+
 ### Get JSON result (default)
 
 ```bash
@@ -83,3 +97,4 @@ class-finder --db /tmp/cf.lmdb find org.springframework.stereotype.Component
 - For ambiguous simple class names, always switch to FQCN
 - If your dependencies are not under default `~/.m2/repository`, set `--m2 /your/maven/repo`
 - If decompilation output is needed for downstream grep, use `--code-only` or `--format text`
+- If your AI task is API understanding/review/planning, prefer `--format structure` before `--code-only`
