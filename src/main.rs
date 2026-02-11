@@ -9,7 +9,7 @@ use class_finder::config::{clear_db, resolve_cfr_path, resolve_db_path, resolve_
 use class_finder::hotspot::HotspotTracker;
 use class_finder::parse::{hash_content, parse_decompiled_output};
 use class_finder::probe::{find_class_fqns_in_jar, jar_contains_class};
-use class_finder::registry::{ClassRegistry, ReadOnlyClassRegistry};
+use class_finder::registry::ClassRegistry;
 use class_finder::scan::{
     class_name_to_class_path, extract_version_from_maven_path, infer_scan_path, infer_search_paths,
     scan_jars,
@@ -17,7 +17,7 @@ use class_finder::scan::{
 use class_finder::structure::{ClassStructure, parse_class_structure};
 use rayon::prelude::*;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -120,8 +120,8 @@ fn main() -> Result<()> {
         } => {
             let cfr = Cfr::new(resolve_cfr_path(&cli)?);
             let db_path = resolve_db_path(&cli)?;
-            let cache = ReadOnlyCache::open(db_path)?;
-            let registry = ReadOnlyClassRegistry::new(cache.db());
+            let cache = PersistentCache::open(db_path)?;
+            let registry = ClassRegistry::new(cache.db());
             let effective_format = if code_only {
                 OutputFormat::Code
             } else {
@@ -137,6 +137,7 @@ fn main() -> Result<()> {
             };
             let result = find_class(&deps, &class_name, version)?;
             write_find_output(&result, effective_format, output.as_deref())?;
+            backfill_find_cache(&cache, &registry, &cfr, &result);
         }
     }
 
@@ -252,8 +253,8 @@ struct IndexResult {
 }
 
 struct FindDeps<'a> {
-    cache: &'a ReadOnlyCache,
-    registry: &'a ReadOnlyClassRegistry,
+    cache: &'a PersistentCache,
+    registry: &'a ClassRegistry,
     cfr: &'a Cfr,
     m2_repo: &'a Path,
 }
@@ -299,6 +300,10 @@ fn find_class(
             let mut used_scan_root = scan_root.clone();
 
             for candidate_root in search_paths.iter() {
+                eprintln!(
+                    "[class-finder] find scan root: {}",
+                    candidate_root.display()
+                );
                 let jars = scan_jars(candidate_root)?;
                 matched = jars
                     .par_iter()
@@ -315,6 +320,10 @@ fn find_class(
             }
 
             if matched.is_empty() && scan_root.as_path() != m2_repo {
+                eprintln!(
+                    "[class-finder] find fallback scan root: {}",
+                    m2_repo.display()
+                );
                 let jars = scan_jars(m2_repo)?;
                 matched = jars
                     .par_iter()
@@ -424,6 +433,64 @@ fn find_class(
         duration_ms: start.elapsed().as_millis() as u64,
         versions,
     })
+}
+
+fn backfill_find_cache(
+    cache: &PersistentCache,
+    registry: &ClassRegistry,
+    cfr: &Cfr,
+    result: &FindResult,
+) {
+    let mut target_jars = Vec::new();
+    let mut seen = HashSet::new();
+
+    for version in &result.versions {
+        if version.cache_hit {
+            continue;
+        }
+        if seen.insert(version.jar_path.clone()) {
+            target_jars.push(PathBuf::from(&version.jar_path));
+        }
+    }
+
+    if target_jars.is_empty() {
+        return;
+    }
+
+    let mut buffer = WriteBuffer::new(
+        cache.db(),
+        BufferConfig::default(),
+        cache.pending_gauge_path(),
+    );
+    let hotspot = HotspotTracker::new(cache.db(), 2);
+
+    for jar_path in target_jars {
+        eprintln!(
+            "[class-finder] find backfill enqueue jar: {}",
+            jar_path.display()
+        );
+        match load_jar(cache, registry, &buffer, cfr, &jar_path) {
+            Ok(output) => {
+                if !output.skipped {
+                    if let Err(err) = cache.mark_jar_loaded(&output.jar_path) {
+                        eprintln!(
+                            "[class-finder] find backfill mark loaded failed: {} ({err})",
+                            output.jar_path
+                        );
+                    }
+                    let _ = hotspot.mark_warmed(&output.jar_path, output.classes_loaded as u32);
+                }
+            }
+            Err(err) => eprintln!(
+                "[class-finder] find backfill failed for {}: {err}",
+                jar_path.display()
+            ),
+        }
+    }
+
+    if let Err(err) = buffer.shutdown_and_flush() {
+        eprintln!("[class-finder] find backfill flush failed: {err}");
+    }
 }
 
 fn load_jar(

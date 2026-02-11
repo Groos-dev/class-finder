@@ -189,10 +189,10 @@ fi
         ],
         &envs,
     )?;
-    assert_eq!(second["versions"][0]["cache_hit"], Value::Bool(false));
+    assert_eq!(second["versions"][0]["cache_hit"], Value::Bool(true));
     assert_eq!(
         second["versions"][0]["source"],
-        Value::String("scan".to_string())
+        Value::String("cache".to_string())
     );
 
     let load = run_json(
@@ -207,7 +207,7 @@ fi
         ],
         &envs,
     )?;
-    assert_eq!(load["skipped"], Value::Bool(false));
+    assert_eq!(load["skipped"], Value::Bool(true));
 
     let third = run_json(
         bin,
