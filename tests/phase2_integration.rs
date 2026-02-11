@@ -104,24 +104,95 @@ fn phase2_three_layer_flow_works() -> anyhow::Result<()> {
         &fake_java,
         if cfg!(windows) {
             r#"@echo off
-if "%3"=="--extraclasspath" (
-  if "%5"=="org.example.pkg.A" (
-    echo package org.example.pkg;
-    echo public class A {}
-    exit /b 0
-  )
-  if "%5"=="org.example.pkg.B" (
-    echo package org.example.pkg;
-    echo public class B {}
-    exit /b 0
-  )
-  echo package org.example.pkg; public class Unknown {}
-  exit /b 0
+setlocal EnableExtensions
+set "mode=jar"
+set "target="
+set "expect="
+
+:parse
+if "%~1"=="" goto parsed
+
+if /I "%expect%"=="jarfile" (
+  set "expect="
+  shift
+  goto parse
 )
+
+if /I "%expect%"=="extraclasspath" (
+  set "mode=class"
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%~1"=="-jar" (
+  set "expect=jarfile"
+  shift
+  goto parse
+)
+
+if /I "%~1"=="--extraclasspath" (
+  set "expect=extraclasspath"
+  shift
+  goto parse
+)
+
+if "%~1:~0,1%"=="-" (
+  shift
+  goto parse
+)
+
+if not defined target set "target=%~1"
+shift
+goto parse
+
+:parsed
+if /I "%mode%"=="class" (
+  if /I "%target%"=="org.example.pkg.A" goto class_a
+  if /I "%target%"=="org.example.pkg.B" goto class_b
+  goto class_unknown
+)
+goto jar_all
+
+:class_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
 echo package org.example.pkg;
-echo public class A {}
+echo.
+echo public class A {
+echo }
+exit /b 0
+
+:class_b
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
 echo package org.example.pkg;
-echo public class B {}
+echo.
+echo public class B {
+echo }
+exit /b 0
+
+:class_unknown
+echo package org.example.pkg; public class Unknown {}
+exit /b 0
+
+:jar_all
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class B {
+echo }
 exit /b 0
 "#
         } else {
@@ -330,13 +401,70 @@ fn phase2_implicit_find_with_global_flags_works() -> anyhow::Result<()> {
         &fake_java,
         if cfg!(windows) {
             r#"@echo off
-if "%3"=="--extraclasspath" (
-  echo package org.example.pkg;
-  echo public class A {}
-  exit /b 0
+setlocal EnableExtensions
+set "mode=jar"
+set "target="
+set "expect="
+
+:parse
+if "%~1"=="" goto parsed
+
+if /I "%expect%"=="jarfile" (
+  set "expect="
+  shift
+  goto parse
 )
+
+if /I "%expect%"=="extraclasspath" (
+  set "mode=class"
+  set "expect="
+  shift
+  goto parse
+)
+
+if /I "%~1"=="-jar" (
+  set "expect=jarfile"
+  shift
+  goto parse
+)
+
+if /I "%~1"=="--extraclasspath" (
+  set "expect=extraclasspath"
+  shift
+  goto parse
+)
+
+if "%~1:~0,1%"=="-" (
+  shift
+  goto parse
+)
+
+if not defined target set "target=%~1"
+shift
+goto parse
+
+:parsed
+if /I "%mode%"=="class" goto class_a
+goto jar_a
+
+:class_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
 echo package org.example.pkg;
-echo public class A {}
+echo.
+echo public class A {
+echo }
+exit /b 0
+
+:jar_a
+echo /*
+echo  * Decompiled with CFR 0.152.
+echo  */
+echo package org.example.pkg;
+echo.
+echo public class A {
+echo }
 exit /b 0
 "#
         } else {
