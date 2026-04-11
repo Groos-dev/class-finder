@@ -18,14 +18,15 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::cache::CLASSES_DB;
+use crate::cache::{CLASS_SOURCES_DB, CachedClassSource, ClassContentSource};
 
 type StrDb = Database<Str, Str>;
 
 #[derive(Debug, Clone)]
 pub struct PendingWrite {
     pub key: String,
-    pub source: String,
+    pub content: String,
+    pub source: ClassContentSource,
 }
 
 #[derive(Debug, Clone)]
@@ -193,9 +194,13 @@ fn batch_write(env: &Env, batch: &[PendingWrite]) -> Result<()> {
         return Ok(());
     }
     let mut wtxn = env.write_txn()?;
-    let table: StrDb = env.create_database::<Str, Str>(&mut wtxn, Some(CLASSES_DB))?;
+    let table: StrDb = env.create_database::<Str, Str>(&mut wtxn, Some(CLASS_SOURCES_DB))?;
     for entry in batch {
-        table.put(&mut wtxn, entry.key.as_str(), entry.source.as_str())?;
+        let payload = serde_json::to_string(&CachedClassSource {
+            content: entry.content.clone(),
+            source: entry.source.clone(),
+        })?;
+        table.put(&mut wtxn, entry.key.as_str(), payload.as_str())?;
     }
     wtxn.commit()?;
     Ok(())
@@ -242,14 +247,14 @@ mod tests {
         assert_eq!(buffer.pending_count(), 0);
         buffer.enqueue(PendingWrite {
             key: "a.A::jar1".to_string(),
-            source: "class A {}".to_string(),
+            content: "class A {}".to_string(),
+            source: ClassContentSource::Decompiled,
         })?;
 
         buffer.shutdown_and_flush()?;
-        assert_eq!(
-            cache.get_class_source("a.A::jar1")?.as_deref(),
-            Some("class A {}")
-        );
+        let cached = cache.get_class_source("a.A::jar1")?.unwrap();
+        assert_eq!(cached.content, "class A {}");
+        assert_eq!(cached.source, ClassContentSource::Decompiled);
         assert!(!gauge.exists());
 
         drop(cache);

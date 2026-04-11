@@ -1,7 +1,7 @@
-//! Persistent cache for decompiled Java sources and metadata.
+//! Persistent cache for Java sources and metadata.
 //!
 //! Uses LMDB (via heed) for efficient key-value storage with ACID guarantees.
-//! Stores decompiled class sources, JAR load status, class registry,
+//! Stores extracted/decompiled class sources, JAR load status, class registry,
 //! artifact manifests, hotspot tracking, and modification times.
 
 use anyhow::{Context, Result};
@@ -10,7 +10,7 @@ use heed::{Database, Env, EnvFlags, EnvOpenOptions, RoTxn};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-pub const CLASSES_DB: &str = "classes";
+pub const CLASS_SOURCES_DB: &str = "class_sources";
 pub const JARS_DB: &str = "jars";
 pub const CLASS_REGISTRY_DB: &str = "class_registry";
 pub const ARTIFACT_MANIFEST_DB: &str = "artifact_manifest";
@@ -22,11 +22,33 @@ const DEFAULT_MAX_DBS: u32 = 32;
 
 type StrDb = Database<Str, Str>;
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum ClassContentSource {
+    SourcesJar,
+    Decompiled,
+}
+
+impl ClassContentSource {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::SourcesJar => "sources-jar",
+            Self::Decompiled => "decompiled",
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+pub struct CachedClassSource {
+    pub content: String,
+    pub source: ClassContentSource,
+}
+
 #[derive(Debug)]
 pub struct PersistentCache {
     env: Arc<Env>,
     db_path: PathBuf,
-    classes: StrDb,
+    class_sources: StrDb,
     jars: StrDb,
     class_registry: StrDb,
     artifact_manifest: StrDb,
@@ -50,7 +72,7 @@ impl PersistentCache {
         let env = Arc::new(env);
 
         let mut wtxn = env.write_txn()?;
-        let classes = env.create_database::<Str, Str>(&mut wtxn, Some(CLASSES_DB))?;
+        let class_sources = env.create_database::<Str, Str>(&mut wtxn, Some(CLASS_SOURCES_DB))?;
         let jars = env.create_database::<Str, Str>(&mut wtxn, Some(JARS_DB))?;
         let class_registry = env.create_database::<Str, Str>(&mut wtxn, Some(CLASS_REGISTRY_DB))?;
         let artifact_manifest =
@@ -62,7 +84,7 @@ impl PersistentCache {
         Ok(Self {
             env,
             db_path,
-            classes,
+            class_sources,
             jars,
             class_registry,
             artifact_manifest,
@@ -80,19 +102,24 @@ impl PersistentCache {
         PathBuf::from(os)
     }
 
-    pub fn get_class_source(&self, key: &str) -> Result<Option<String>> {
+    pub fn get_class_source(&self, key: &str) -> Result<Option<CachedClassSource>> {
         let rtxn = self.env.read_txn()?;
-        Ok(self.classes.get(&rtxn, key)?.map(|v| v.to_string()))
+        let Some(value) = self.class_sources.get(&rtxn, key)? else {
+            return Ok(None);
+        };
+        Ok(Some(serde_json::from_str(value)?))
     }
 
-    pub fn put_class_sources(&self, entries: &[(String, String)]) -> Result<usize> {
+    pub fn put_class_sources(&self, entries: &[(String, CachedClassSource)]) -> Result<usize> {
         if entries.is_empty() {
             return Ok(0);
         }
 
         let mut wtxn = self.env.write_txn()?;
         for (k, v) in entries {
-            self.classes.put(&mut wtxn, k.as_str(), v.as_str())?;
+            let payload = serde_json::to_string(v)?;
+            self.class_sources
+                .put(&mut wtxn, k.as_str(), payload.as_str())?;
         }
         wtxn.commit()?;
         Ok(entries.len())
@@ -113,7 +140,7 @@ impl PersistentCache {
     pub fn stats(&self) -> Result<CacheStats> {
         let rtxn = self.env.read_txn()?;
 
-        let source_entries = table_len(&self.classes, &rtxn)?;
+        let source_entries = table_len(&self.class_sources, &rtxn)?;
         let loaded_jars = table_len(&self.jars, &rtxn)?;
         let indexed_classes = table_len(&self.class_registry, &rtxn)?;
         let cataloged_jars = table_len(&self.artifact_manifest, &rtxn)?;
@@ -172,7 +199,7 @@ impl ReadOnlyCache {
         self.inner.db()
     }
 
-    pub fn get_class_source(&self, key: &str) -> Result<Option<String>> {
+    pub fn get_class_source(&self, key: &str) -> Result<Option<CachedClassSource>> {
         self.inner.get_class_source(key)
     }
 

@@ -2,9 +2,9 @@
 
 [English](README.en.md) | 简体中文
 
-在本地 Maven 仓库（`~/.m2/repository`）中查找 Java 类所在的 jar，并返回反编译后的源码。
+在本地 Maven 仓库（`~/.m2/repository`）中查找 Java 类所在的 jar，并返回源码。
 
-运行时会自动管理反编译器（CFR）与缓存（LMDB via heed），用户不需要关心它们的存放位置。
+运行时会优先读取同目录的 `*-sources.jar` 并解压 `.java` 源码；如果没有源码 jar 或缺少对应源码，再回退到 CFR 反编译。源码和反编译结果都会缓存到 LMDB（via heed）。
 
 ## 安装
 
@@ -131,6 +131,12 @@ class-finder org.springframework.stereotype.Component --format code
 class-finder org.springframework.stereotype.Component --format text
 ```
 
+- 输出结构摘要（会优先用 `*-sources.jar` 解析，尽量保留类/字段/方法注释）：
+
+```bash
+class-finder org.springframework.stereotype.Component --format structure
+```
+
 - 输出到文件（自动创建父目录）：
 
 ```bash
@@ -185,7 +191,7 @@ class-finder index --path /path/to/maven/repo
 
 ### 手动加载 JAR
 
-手动加载指定 JAR 文件，解析所有类并缓存：
+手动加载指定 JAR 文件，优先从 `*-sources.jar` 缓存源码，缺失时再缓存反编译结果：
 
 ```bash
 class-finder load /path/to/your.jar
@@ -193,7 +199,7 @@ class-finder load /path/to/your.jar
 
 ### 预热系统
 
-预热常用 JAR，提前缓存反编译结果：
+预热常用 JAR，提前缓存源码或反编译结果：
 
 - 预热访问频率最高的 JAR：
 
@@ -255,7 +261,7 @@ class-finder clear
 
 - 底层存储为 LMDB（通过 heed），`index` / `load` / `warmup` / `find` / `stats` 都直接访问同一个主库（默认路径名 `db.lmdb`）。
 
-第一次查询会较慢（需要扫描 jar 并反编译），后续查询命中本地缓存会显著加速。使用 `index` 和 `warmup` 命令可以提前构建索引和缓存，进一步提升查询速度。
+第一次查询会较慢（需要扫描 jar，并读取 sources jar 或反编译），后续查询命中本地缓存会显著加速。使用 `index` 和 `warmup` 命令可以提前构建索引和缓存，进一步提升查询速度。
 
 ## 常见问题
 

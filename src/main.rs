@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use class_finder::buffer::{BufferConfig, PendingWrite, WriteBuffer};
-use class_finder::cache::{PersistentCache, ReadOnlyCache};
+use class_finder::cache::{ClassContentSource, PersistentCache, ReadOnlyCache};
 use class_finder::catalog;
 use class_finder::cfr::Cfr;
 use class_finder::cli::{Cli, Commands, OutputFormat};
@@ -14,6 +14,7 @@ use class_finder::scan::{
     class_name_to_class_path, extract_version_from_maven_path, infer_scan_path, infer_search_paths,
     scan_jars,
 };
+use class_finder::source;
 use class_finder::structure::{ClassStructure, parse_class_structure};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -211,6 +212,7 @@ struct FindVersion {
     content: String,
     cache_hit: bool,
     source: String,
+    lookup_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     structure: Option<ClassStructure>,
 }
@@ -394,26 +396,35 @@ fn find_class(
         let jar_key = jar_path.to_string_lossy().to_string();
         let cache_key = format!("{resolved_class_name}::{jar_key}");
 
-        if let Some(content) = deps.cache.get_class_source(&cache_key)? {
+        if let Some(cached) = deps.cache.get_class_source(&cache_key)? {
+            let content_hash = hash_content(&cached.content);
             versions.push(FindVersion {
                 version: extract_version_from_maven_path(jar_path),
                 jar_path: jar_key,
-                content_hash: hash_content(&content),
-                content,
+                content_hash,
+                content: cached.content,
                 cache_hit: true,
-                source: "cache".to_string(),
+                source: cached.source.as_str().to_string(),
+                lookup_source: miss_source.clone(),
                 structure: None,
             });
             continue;
         }
 
-        let decompiled = deps.cfr.decompile_class(jar_path, &resolved_class_name)?;
-        let parsed = parse_decompiled_output(&decompiled);
-        let content = parsed
-            .iter()
-            .find(|c| c.class_name == resolved_class_name)
-            .map(|c| c.content.clone())
-            .unwrap_or(decompiled);
+        let (content, content_source) = if let Some(content) =
+            source::read_class_source(jar_path, &resolved_class_name).unwrap_or(None)
+        {
+            (content, ClassContentSource::SourcesJar)
+        } else {
+            let decompiled = deps.cfr.decompile_class(jar_path, &resolved_class_name)?;
+            let parsed = parse_decompiled_output(&decompiled);
+            let content = parsed
+                .iter()
+                .find(|c| c.class_name == resolved_class_name)
+                .map(|c| c.content.clone())
+                .unwrap_or(decompiled);
+            (content, ClassContentSource::Decompiled)
+        };
         let content_hash = hash_content(&content);
         versions.push(FindVersion {
             version: extract_version_from_maven_path(jar_path),
@@ -421,7 +432,8 @@ fn find_class(
             content_hash,
             content,
             cache_hit: false,
-            source: miss_source.clone(),
+            source: content_source.as_str().to_string(),
+            lookup_source: miss_source.clone(),
             structure: None,
         });
     }
@@ -503,10 +515,9 @@ fn load_jar(
     let jar_key = jar_path.to_string_lossy().to_string();
     let start = Instant::now();
 
-    if !registry.is_cataloged(&jar_key).unwrap_or(false)
-        && let Ok(classes) = catalog::catalog(jar_path)
-    {
-        let _ = registry.update_registry_and_mark_cataloged(&jar_key, &classes);
+    let cataloged_classes = catalog::catalog(jar_path).unwrap_or_default();
+    if !registry.is_cataloged(&jar_key).unwrap_or(false) && !cataloged_classes.is_empty() {
+        let _ = registry.update_registry_and_mark_cataloged(&jar_key, &cataloged_classes);
     }
 
     if cache.is_jar_loaded(&jar_key)? {
@@ -518,16 +529,42 @@ fn load_jar(
         });
     }
 
-    let decompiled = cfr.decompile_jar(jar_path)?;
-    let classes = parse_decompiled_output(&decompiled);
-    let classes_loaded = classes.len();
+    let mut cached_classes = HashSet::new();
+    let mut classes_loaded = 0usize;
 
-    for cls in classes {
+    for cls in source::read_jar_sources(jar_path).unwrap_or_default() {
+        cached_classes.insert(cls.class_name.clone());
         let key = format!("{}::{jar_key}", cls.class_name);
         let _ = buffer.enqueue(PendingWrite {
             key,
-            source: cls.content,
+            content: cls.content,
+            source: ClassContentSource::SourcesJar,
         });
+        classes_loaded += 1;
+    }
+
+    let needs_decompile = cached_classes.is_empty()
+        || cataloged_classes
+            .iter()
+            .any(|class_name| !cached_classes.contains(class_name));
+
+    if needs_decompile {
+        let decompiled = cfr.decompile_jar(jar_path)?;
+        let classes = parse_decompiled_output(&decompiled);
+
+        for cls in classes {
+            if cached_classes.contains(&cls.class_name) {
+                continue;
+            }
+            cached_classes.insert(cls.class_name.clone());
+            let key = format!("{}::{jar_key}", cls.class_name);
+            let _ = buffer.enqueue(PendingWrite {
+                key,
+                content: cls.content,
+                source: ClassContentSource::Decompiled,
+            });
+            classes_loaded += 1;
+        }
     }
 
     Ok(LoadResult {
@@ -659,8 +696,8 @@ fn write_find_output(
             out.push_str(&format!("duration_ms: {}\n", result.duration_ms));
             for v in &result.versions {
                 out.push_str(&format!(
-                    "- version: {:?}, source: {}, cache_hit: {}, jar: {}\n",
-                    v.version, v.source, v.cache_hit, v.jar_path
+                    "- version: {:?}, source: {}, lookup_source: {}, cache_hit: {}, jar: {}\n",
+                    v.version, v.source, v.lookup_source, v.cache_hit, v.jar_path
                 ));
             }
             out
@@ -674,6 +711,7 @@ fn write_find_output(
             struct StructureVersion<'a> {
                 version: &'a Option<String>,
                 jar_path: &'a str,
+                structure_source: String,
                 #[serde(skip_serializing_if = "Option::is_none")]
                 structure: Option<ClassStructure>,
             }
@@ -687,10 +725,15 @@ fn write_find_output(
             let versions: Vec<StructureVersion> = result
                 .versions
                 .iter()
-                .map(|v| StructureVersion {
-                    version: &v.version,
-                    jar_path: &v.jar_path,
-                    structure: parse_class_structure(&v.content),
+                .map(|v| {
+                    let (structure_content, structure_source) =
+                        preferred_structure_content(v, &result.class_name);
+                    StructureVersion {
+                        version: &v.version,
+                        jar_path: &v.jar_path,
+                        structure_source,
+                        structure: parse_class_structure(&structure_content),
+                    }
                 })
                 .collect();
             let out = StructureOutput {
@@ -720,12 +763,21 @@ fn write_find_output(
     Ok(())
 }
 
+fn preferred_structure_content(version: &FindVersion, class_name: &str) -> (String, String) {
+    let jar_path = Path::new(&version.jar_path);
+    if let Ok(Some(content)) = source::read_class_source(jar_path, class_name) {
+        return (content, ClassContentSource::SourcesJar.as_str().to_string());
+    }
+
+    (version.content.clone(), version.source.clone())
+}
+
 fn choose_default_version(versions: &[FindVersion]) -> Result<&FindVersion> {
     versions
         .iter()
         .rfind(|v| v.version.is_some())
         .or_else(|| versions.first())
-        .context("No available decompiled result")
+        .context("No available source result")
 }
 
 #[cfg(test)]
@@ -777,7 +829,8 @@ mod tests {
                 content_hash: "h1".to_string(),
                 content: "A".to_string(),
                 cache_hit: true,
-                source: "cache".to_string(),
+                source: "decompiled".to_string(),
+                lookup_source: "cache".to_string(),
                 structure: None,
             },
             FindVersion {
@@ -786,7 +839,8 @@ mod tests {
                 content_hash: "h2".to_string(),
                 content: "B".to_string(),
                 cache_hit: false,
-                source: "scan".to_string(),
+                source: "decompiled".to_string(),
+                lookup_source: "scan".to_string(),
                 structure: None,
             },
             FindVersion {
@@ -795,7 +849,8 @@ mod tests {
                 content_hash: "h3".to_string(),
                 content: "C".to_string(),
                 cache_hit: false,
-                source: "registry".to_string(),
+                source: "decompiled".to_string(),
+                lookup_source: "registry".to_string(),
                 structure: None,
             },
         ];
@@ -808,6 +863,52 @@ mod tests {
     #[test]
     fn choose_default_version_fails_when_empty() {
         let err = choose_default_version(&[]).unwrap_err().to_string();
-        assert!(err.contains("No available decompiled result"));
+        assert!(err.contains("No available source result"));
+    }
+
+    #[test]
+    fn preferred_structure_content_reads_sources_jar_over_cached_content() -> Result<()> {
+        use std::io::Write;
+        use zip::write::FileOptions;
+
+        let base = std::env::temp_dir().join(format!(
+            "class_finder_structure_source_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&base)?;
+        let jar = base.join("demo-1.0.jar");
+        std::fs::write(&jar, b"not a jar")?;
+
+        let sources = base.join("demo-1.0-sources.jar");
+        let file = std::fs::File::create(&sources)?;
+        let mut zip = zip::ZipWriter::new(file);
+        zip.start_file(
+            "org/example/A.java",
+            FileOptions::default().compression_method(zip::CompressionMethod::Deflated),
+        )?;
+        zip.write_all(b"/** Source doc. */\npackage org.example;\npublic class A {}\n")?;
+        zip.finish()?;
+
+        let version = FindVersion {
+            version: Some("1.0".to_string()),
+            jar_path: jar.to_string_lossy().to_string(),
+            content_hash: "cached".to_string(),
+            content: "package org.example; public class A {}".to_string(),
+            cache_hit: true,
+            source: ClassContentSource::Decompiled.as_str().to_string(),
+            lookup_source: "registry".to_string(),
+            structure: None,
+        };
+
+        let (content, source) = preferred_structure_content(&version, "org.example.A");
+        assert_eq!(source, ClassContentSource::SourcesJar.as_str());
+        assert!(content.contains("Source doc"));
+
+        let _ = std::fs::remove_dir_all(base);
+        Ok(())
     }
 }

@@ -22,9 +22,12 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crate::buffer::{PendingWrite, WriteBufferHandle};
+use crate::cache::ClassContentSource;
+use crate::catalog;
 use crate::cfr::Cfr;
 use crate::hotspot::HotspotTracker;
 use crate::parse::parse_decompiled_output;
+use crate::source;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WarmupMode {
@@ -258,11 +261,11 @@ fn warmup_jar(
     exclude_fqns: &HashSet<String>,
 ) -> Result<usize> {
     let jar_key = jar_path.to_string_lossy().to_string();
-    let decompiled = cfr.decompile_jar(jar_path)?;
-    let classes = parse_decompiled_output(&decompiled);
-    let class_count = classes.len();
+    let cataloged_classes = catalog::catalog(jar_path).unwrap_or_default();
+    let mut cached_classes = HashSet::new();
+    let mut class_count = 0usize;
 
-    for cls in classes {
+    for cls in source::read_jar_sources(jar_path).unwrap_or_default() {
         if exclude_fqns.contains(&cls.class_name) {
             continue;
         }
@@ -273,11 +276,48 @@ fn warmup_jar(
             continue;
         }
 
+        cached_classes.insert(cls.class_name.clone());
         let key = format!("{}::{jar_key}", cls.class_name);
         let _ = buffer.enqueue(PendingWrite {
             key,
-            source: cls.content,
+            content: cls.content,
+            source: ClassContentSource::SourcesJar,
         });
+        class_count += 1;
+    }
+
+    let needs_decompile = cached_classes.is_empty()
+        || cataloged_classes
+            .iter()
+            .any(|class_name| !cached_classes.contains(class_name));
+
+    if needs_decompile {
+        let decompiled = cfr.decompile_jar(jar_path)?;
+        let classes = parse_decompiled_output(&decompiled);
+
+        for cls in classes {
+            if exclude_fqns.contains(&cls.class_name) {
+                continue;
+            }
+            if cached_classes.contains(&cls.class_name) {
+                continue;
+            }
+            if mode == WarmupMode::TopLevelOnly && cls.class_name.contains('$') {
+                continue;
+            }
+            if cls.class_name.ends_with("package-info") || cls.class_name.ends_with("module-info") {
+                continue;
+            }
+
+            cached_classes.insert(cls.class_name.clone());
+            let key = format!("{}::{jar_key}", cls.class_name);
+            let _ = buffer.enqueue(PendingWrite {
+                key,
+                content: cls.content,
+                source: ClassContentSource::Decompiled,
+            });
+            class_count += 1;
+        }
     }
 
     Ok(class_count)

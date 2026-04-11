@@ -2,9 +2,9 @@
 
 English | [简体中文](README.md)
 
-Find Java classes in your local Maven repository (`~/.m2/repository`) and return decompiled source code.
+Find Java classes in your local Maven repository (`~/.m2/repository`) and return source code.
 
-Automatically manages the decompiler (CFR) and cache (LMDB via heed) at runtime - users don't need to worry about where they're stored.
+At runtime, class-finder first reads the sibling `*-sources.jar` and extracts `.java` source. If the sources JAR or the requested source is missing, it falls back to CFR decompilation. Both source and decompiled results are cached in LMDB (via heed).
 
 ## Installation
 
@@ -131,6 +131,12 @@ class-finder org.springframework.stereotype.Component --format code
 class-finder org.springframework.stereotype.Component --format text
 ```
 
+- Structure summary (prefers `*-sources.jar` and preserves class/field/method comments when possible):
+
+```bash
+class-finder org.springframework.stereotype.Component --format structure
+```
+
 - Write output to file (parent directory is created automatically):
 
 ```bash
@@ -185,7 +191,7 @@ class-finder index --path /path/to/maven/repo
 
 ### Manual JAR Loading
 
-Manually load a specific JAR file, parse all classes and cache them:
+Manually load a specific JAR file, preferring `*-sources.jar` source and falling back to cached decompiled output:
 
 ```bash
 class-finder load /path/to/your.jar
@@ -193,7 +199,7 @@ class-finder load /path/to/your.jar
 
 ### Warmup System
 
-Preload frequently used JARs and cache decompiled results in advance:
+Preload frequently used JARs and cache source or decompiled results in advance:
 
 - Warmup most frequently accessed JARs:
 
@@ -255,7 +261,7 @@ class-finder clear
 
 - The storage backend is LMDB (via heed), and `index`, `load`, `warmup`, `find`, and `stats` all access the same main DB directly (default pathname `db.lmdb`).
 
-The first query will be slower (needs to scan JARs and decompile), but subsequent queries will be significantly faster when hitting the local cache. Use `index` and `warmup` commands to build indexes and caches in advance for even faster queries.
+The first query will be slower (needs to scan JARs and read sources JARs or decompile), but subsequent queries will be significantly faster when hitting the local cache. Use `index` and `warmup` commands to build indexes and caches in advance for even faster queries.
 
 ## FAQ
 

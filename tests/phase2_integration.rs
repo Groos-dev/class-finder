@@ -280,6 +280,10 @@ fi
     assert_eq!(first["versions"][0]["cache_hit"], Value::Bool(false));
     assert_eq!(
         first["versions"][0]["source"],
+        Value::String("decompiled".to_string())
+    );
+    assert_eq!(
+        first["versions"][0]["lookup_source"],
         Value::String("scan".to_string())
     );
 
@@ -300,7 +304,7 @@ fi
     assert_eq!(second["versions"][0]["cache_hit"], Value::Bool(true));
     assert_eq!(
         second["versions"][0]["source"],
-        Value::String("cache".to_string())
+        Value::String("decompiled".to_string())
     );
 
     let load = run_json(
@@ -334,7 +338,7 @@ fi
     assert_eq!(third["versions"][0]["cache_hit"], Value::Bool(true));
     assert_eq!(
         third["versions"][0]["source"],
-        Value::String("cache".to_string())
+        Value::String("decompiled".to_string())
     );
 
     let stats_after_load = run_json(
@@ -381,7 +385,109 @@ fi
     assert_eq!(after_warm["versions"][0]["cache_hit"], Value::Bool(true));
     assert_eq!(
         after_warm["versions"][0]["source"],
-        Value::String("cache".to_string())
+        Value::String("decompiled".to_string())
+    );
+
+    let _ = std::fs::remove_dir_all(base);
+    Ok(())
+}
+
+#[test]
+fn sources_jar_is_preferred_and_cached() -> anyhow::Result<()> {
+    let base = temp_dir("sources_jar");
+    let m2 = base.join("m2");
+    let db = base.join("db.lmdb");
+    let fake_cfr = base.join("cfr.jar");
+    write_file(&fake_cfr, "stub")?;
+
+    let jar = m2.join("org/example/demo/1.0/demo-1.0.jar");
+    write_jar(
+        &jar,
+        &[
+            ("org/example/pkg/A.class", b""),
+            ("org/example/pkg/B.class", b""),
+        ],
+    )?;
+    let sources_jar = m2.join("org/example/demo/1.0/demo-1.0-sources.jar");
+    write_jar(
+        &sources_jar,
+        &[
+            (
+                "org/example/pkg/A.java",
+                b"package org.example.pkg;\n\npublic class A {\n    public String source() { return \"sources\"; }\n}\n",
+            ),
+            (
+                "org/example/pkg/B.java",
+                b"package org.example.pkg;\n\npublic class B {\n}\n",
+            ),
+        ],
+    )?;
+
+    let bin = env!("CARGO_BIN_EXE_class-finder");
+    let first = run_json(
+        bin,
+        &[
+            "--m2",
+            m2.to_string_lossy().as_ref(),
+            "--db",
+            db.to_string_lossy().as_ref(),
+            "--cfr",
+            fake_cfr.to_string_lossy().as_ref(),
+            "find",
+            "org.example.pkg.A",
+        ],
+        &[],
+    )?;
+    assert_eq!(first["versions"][0]["cache_hit"], Value::Bool(false));
+    assert_eq!(
+        first["versions"][0]["source"],
+        Value::String("sources-jar".to_string())
+    );
+    assert!(
+        first["versions"][0]["content"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("return \"sources\"")
+    );
+
+    let second = run_json(
+        bin,
+        &[
+            "--m2",
+            m2.to_string_lossy().as_ref(),
+            "--db",
+            db.to_string_lossy().as_ref(),
+            "--cfr",
+            fake_cfr.to_string_lossy().as_ref(),
+            "find",
+            "org.example.pkg.A",
+        ],
+        &[],
+    )?;
+    assert_eq!(second["versions"][0]["cache_hit"], Value::Bool(true));
+    assert_eq!(
+        second["versions"][0]["source"],
+        Value::String("sources-jar".to_string())
+    );
+
+    let third = run_json(
+        bin,
+        &[
+            "--m2",
+            m2.to_string_lossy().as_ref(),
+            "--db",
+            db.to_string_lossy().as_ref(),
+            "--cfr",
+            fake_cfr.to_string_lossy().as_ref(),
+            "find",
+            "org.example.pkg.B",
+        ],
+        &[],
+    )?;
+    assert_eq!(third["versions"][0]["cache_hit"], Value::Bool(true));
+    assert_eq!(
+        third["versions"][0]["source"],
+        Value::String("sources-jar".to_string())
     );
 
     let _ = std::fs::remove_dir_all(base);
@@ -535,6 +641,10 @@ fi
     assert_eq!(result["versions"][0]["cache_hit"], Value::Bool(false));
     assert_eq!(
         result["versions"][0]["source"],
+        Value::String("decompiled".to_string())
+    );
+    assert_eq!(
+        result["versions"][0]["lookup_source"],
         Value::String("scan".to_string())
     );
 

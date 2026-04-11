@@ -8,6 +8,7 @@ Cargo.lock
 /dist
 /.trae
 /.claude/
+/.omx/
 
 # Database files
 *.lmdb
