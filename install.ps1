@@ -30,7 +30,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-  throw "Failed to resolve latest version; set -Version v0.0.1-beta"
+  throw "Failed to resolve latest version; set -Version v0.0.2"
 }
 
 $arch = $env:PROCESSOR_ARCHITECTURE

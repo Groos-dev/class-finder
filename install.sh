@@ -64,7 +64,7 @@ if [ -z "$version" ]; then
 fi
 
 if [ -z "$version" ]; then
-  echo "failed to resolve version; set VERSION=v0.0.1-beta.2" >&2
+  echo "failed to resolve version; set VERSION=v0.0.2" >&2
   exit 1
 fi
 

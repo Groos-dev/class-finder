@@ -1,6 +1,6 @@
 [package]
 name = "class-finder"
-version = "0.0.1-beta"
+version = "0.0.2"
 edition = "2024"
 description = "Find Java classes in your local Maven repository and return source or decompiled code with persistent caching."
 license = "MIT"

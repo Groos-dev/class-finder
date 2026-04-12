@@ -37,7 +37,7 @@ The installation script automatically:
 - Linux / macOS (specify version):
 
 ```bash
-VERSION=v0.0.1-beta.5 curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
+VERSION=v0.0.2 curl -fsSL https://github.com/Groos-dev/class-finder/releases/latest/download/install.sh | sh
 ```
 
 - Linux / macOS (install to custom directory):
@@ -55,7 +55,7 @@ ALLOW_PRERELEASE=1 curl -fsSL https://github.com/Groos-dev/class-finder/releases
 - Windows (specify version):
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1; & ([scriptblock]::Create($s)) -Version 'v0.0.1-beta.5'"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=irm https://github.com/Groos-dev/class-finder/releases/latest/download/install.ps1; & ([scriptblock]::Create($s)) -Version 'v0.0.2'"
 ```
 
 - Windows (install prerelease: auto-select latest beta/rc/alpha):
