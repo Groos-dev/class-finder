@@ -59,7 +59,7 @@ if [ -z "$version" ]; then
   if [ "${allow_prerelease}" = "1" ]; then
     version="$(pick_latest_tag_allow_prerelease || true)"
   else
-    version="$(pick_latest_tag || true)"
+    version="latest"
   fi
 fi
 
@@ -90,8 +90,13 @@ case "$arch" in
 esac
 
 asset="class-finder-${os}-${arch}.tar.gz"
-url="https://github.com/${REPO}/releases/download/${version}/${asset}"
-sum_url="https://github.com/${REPO}/releases/download/${version}/SHA256SUMS"
+if [ "$version" = "latest" ]; then
+  release_base="https://github.com/${REPO}/releases/latest/download"
+else
+  release_base="https://github.com/${REPO}/releases/download/${version}"
+fi
+url="${release_base}/${asset}"
+sum_url="${release_base}/SHA256SUMS"
 
 tmp="${TMPDIR:-/tmp}/class-finder-install.$$"
 rm -rf "$tmp"
@@ -153,7 +158,13 @@ fi
 
 claude_skill_dir="${HOME}/.claude/skills/find-class"
 mkdir -p "$claude_skill_dir"
-skill_ref="${SKILL_REF:-$version}"
+if [ -n "${SKILL_REF:-}" ]; then
+  skill_ref="$SKILL_REF"
+elif [ "$version" = "latest" ]; then
+  skill_ref="main"
+else
+  skill_ref="$version"
+fi
 skill_url="https://raw.githubusercontent.com/${REPO}/${skill_ref}/skills/find-class/SKILL.md"
 skill_fallback_url="https://raw.githubusercontent.com/${REPO}/main/skills/find-class/SKILL.md"
 

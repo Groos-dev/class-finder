@@ -26,7 +26,11 @@ function Get-LatestTag {
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-  $Version = Get-LatestTag
+  if ($AllowPrerelease) {
+    $Version = Get-LatestTag
+  } else {
+    $Version = "latest"
+  }
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
@@ -41,8 +45,13 @@ if ($arch -eq "AMD64") {
 }
 
 $asset = "class-finder-windows-$arch.zip"
-$url = "https://github.com/$Repo/releases/download/$Version/$asset"
-$sumUrl = "https://github.com/$Repo/releases/download/$Version/SHA256SUMS"
+if ($Version -eq "latest") {
+  $releaseBase = "https://github.com/$Repo/releases/latest/download"
+} else {
+  $releaseBase = "https://github.com/$Repo/releases/download/$Version"
+}
+$url = "$releaseBase/$asset"
+$sumUrl = "$releaseBase/SHA256SUMS"
 
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
   $InstallDir = Join-Path $env:LOCALAPPDATA "Programs\class-finder\bin"
@@ -87,7 +96,11 @@ if (-not (Test-Path $cfrPath)) {
 $skillDir = Join-Path $env:USERPROFILE ".claude\skills\find-class"
 New-Item -ItemType Directory -Force -Path $skillDir | Out-Null
 if ([string]::IsNullOrWhiteSpace($SkillRef)) {
-  $SkillRef = $Version
+  if ($Version -eq "latest") {
+    $SkillRef = "main"
+  } else {
+    $SkillRef = $Version
+  }
 }
 $skillUrl = "https://raw.githubusercontent.com/$Repo/$SkillRef/skills/find-class/SKILL.md"
 $skillFallbackUrl = "https://raw.githubusercontent.com/$Repo/main/skills/find-class/SKILL.md"
