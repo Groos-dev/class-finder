@@ -9,7 +9,7 @@ use zip::ZipArchive;
 use crate::parse::{ParsedClass, extract_class_name, hash_content};
 
 pub fn sources_jar_path(jar_path: &Path) -> Option<PathBuf> {
-    if !jar_path.extension().is_some_and(|ext| ext == "jar") {
+    if jar_path.extension().is_none_or(|ext| ext != "jar") {
         return None;
     }
 
